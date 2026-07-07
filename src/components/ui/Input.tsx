@@ -1,58 +1,22 @@
-import { forwardRef, useId, type InputHTMLAttributes } from 'react';
+import * as React from "react";
 
-import { cn } from '@/utils/cn';
+import { cn } from "@/lib/utils";
 
-export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-  label?: string;
-  error?: string;
-  hint?: string;
-}
-
-/**
- * Form input with label, error display, and react-hook-form integration
- * (Section 6.5 `<Input />`). Forwarded ref allows direct use with RHF's
- * `register()`: `<Input label="Mobile" {...register('mobile')} error={errors.mobile?.message} />`.
- */
-export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, error, hint, id, className, ...rest },
-  ref,
-) {
-  const generatedId = useId();
-  const inputId = id ?? generatedId;
-  const errorId = `${inputId}-error`;
-  const hintId = `${inputId}-hint`;
-
-  return (
-    <div className="flex flex-col gap-1">
-      {label && (
-        <label htmlFor={inputId} className="text-sm font-medium text-neutral-700">
-          {label}
-        </label>
-      )}
+const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
+  ({ className, type, ...props }, ref) => {
+    return (
       <input
-        ref={ref}
-        id={inputId}
-        aria-invalid={Boolean(error)}
-        aria-describedby={error ? errorId : hint ? hintId : undefined}
+        type={type}
         className={cn(
-          'h-10 w-full rounded-lg border border-neutral-300 px-3 text-sm text-neutral-900',
-          'placeholder:text-neutral-400 focus-visible:border-brand-500',
-          error && 'border-danger-500 focus-visible:ring-danger-500',
+          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
           className,
         )}
-        {...rest}
+        ref={ref}
+        {...props}
       />
-      {error ? (
-        <p id={errorId} role="alert" className="text-sm text-danger-700">
-          {error}
-        </p>
-      ) : (
-        hint && (
-          <p id={hintId} className="text-sm text-neutral-500">
-            {hint}
-          </p>
-        )
-      )}
-    </div>
-  );
-});
+    );
+  },
+);
+Input.displayName = "Input";
+
+export { Input };
