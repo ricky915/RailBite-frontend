@@ -1,14 +1,18 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowRight, Clock } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/lib/store";
+import { getHomepage } from "@/features/cms/services/cmsApi";
 import heroThali from "@/assets/hero-thali.jpg";
 
 export function HeroSlider() {
-  const { content } = useStore();
-  const slides = content.hero;
+  const { data } = useQuery({
+    queryKey: ["cms-homepage"],
+    queryFn: () => getHomepage().catch(() => null),
+  });
+  const slides = data?.hero ?? [];
   const [i, setI] = useState(0);
   useEffect(() => {
     if (slides.length <= 1) return;
@@ -31,13 +35,16 @@ export function HeroSlider() {
         >
           <div className="space-y-5">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold leading-[1.05]">
-              <span className="text-navy">{s.eyebrow}</span><br />
+              <span className="text-navy">{s.eyebrow}</span>
+              <br />
               <span className="text-primary">{s.title}</span>
             </h1>
             <div className="w-16 h-1 bg-primary rounded-full" />
             <p className="text-muted-foreground text-base md:text-lg max-w-md">{s.desc}</p>
             <Button size="lg" asChild className="rounded-full h-12 px-6 gap-2 shadow-pop">
-              <Link to="/menu">{s.cta} <ArrowRight className="w-4 h-4" /></Link>
+              <Link to="/menu">
+                {s.cta} <ArrowRight className="w-4 h-4" />
+              </Link>
             </Button>
           </div>
 
@@ -45,7 +52,9 @@ export function HeroSlider() {
             <div className="absolute -top-2 right-4 md:right-8 z-10 w-20 h-20 rounded-full bg-primary text-primary-foreground grid place-items-center text-[10px] font-bold uppercase tracking-wider text-center leading-tight shadow-pop rotate-[-8deg]">
               <div>
                 <Clock className="w-4 h-4 mx-auto mb-0.5" />
-                Fresh<br />On Time
+                Fresh
+                <br />
+                On Time
               </div>
             </div>
             <motion.img

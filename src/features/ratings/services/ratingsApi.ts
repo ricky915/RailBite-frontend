@@ -15,6 +15,11 @@ export async function getMenuItemRatings(menuItemId: string): Promise<ApiRating[
   return data.data;
 }
 
+export async function getFeaturedRatings(limit = 6): Promise<ApiRating[]> {
+  const { data } = await api.get("/ratings", { params: { featured: true, limit } });
+  return data.data;
+}
+
 export async function listAdminRatings(params?: {
   page?: number;
   limit?: number;
