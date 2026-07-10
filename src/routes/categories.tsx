@@ -1,35 +1,59 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { CATEGORIES } from "@/data/foods";
-import { useStore } from "@/lib/store";
+import { useQuery } from "@tanstack/react-query";
+import { getPrimaryRestaurant, getRestaurantMenu } from "@/features/menu/services/menuApi";
 
 export const Route = createFileRoute("/categories")({
   head: () => ({ meta: [{ title: "Categories – SRFOOD" }] }),
   component: CategoriesPage,
 });
 
+function useCategoriesWithCounts() {
+  return useQuery({
+    queryKey: ["categories-with-counts"],
+    queryFn: async () => {
+      const restaurant = await getPrimaryRestaurant();
+      if (!restaurant) return [];
+      const { categories, items } = await getRestaurantMenu(restaurant._id);
+      return categories.map((c) => ({
+        name: c.name,
+        imageUrl: c.imageUrl,
+        count: items.filter((i) => i.categoryId === c._id).length,
+        sampleImageUrl: items.find((i) => i.categoryId === c._id)?.imageUrl ?? c.imageUrl,
+      }));
+    },
+  });
+}
+
 function CategoriesPage() {
-  const { menu } = useStore();
+  const { data, isLoading } = useCategoriesWithCounts();
+  const categories = data ?? [];
+
   return (
     <div className="max-w-6xl mx-auto px-4 md:px-6 py-6">
       <h1 className="text-2xl font-bold mb-5">All Categories</h1>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {CATEGORIES.map((c) => {
-          const sample = menu.find((f) => f.category === c);
-          const count = menu.filter((f) => f.category === c).length;
-          return (
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {categories.map((c) => (
             <Link
-              key={c}
+              key={c.name}
               to="/menu"
-              search={{ cat: c } as never}
               className="bg-card border rounded-2xl p-4 hover:shadow-card hover:border-primary/30 transition group"
             >
-              {sample && <img src={sample.image} alt={c} className="w-full aspect-square object-cover rounded-xl mb-3 group-hover:scale-[1.02] transition" />}
-              <h3 className="font-bold">{c}</h3>
-              <p className="text-xs text-muted-foreground">{count} items</p>
+              {c.sampleImageUrl && (
+                <img
+                  src={c.sampleImageUrl}
+                  alt={c.name}
+                  className="w-full aspect-square object-cover rounded-xl mb-3 group-hover:scale-[1.02] transition"
+                />
+              )}
+              <h3 className="font-bold">{c.name}</h3>
+              <p className="text-xs text-muted-foreground">{c.count} items</p>
             </Link>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

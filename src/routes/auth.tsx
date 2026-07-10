@@ -1,11 +1,29 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { useStore } from "@/lib/store";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  login,
+  register as registerAccount,
+  resendOtp,
+  verifyRegisterOtp,
+} from "@/features/auth/services/authApi";
+import {
+  loginSchema,
+  otpSchema,
+  signupSchema,
+  type LoginFormValues,
+  type OtpFormValues,
+  type SignupFormValues,
+} from "@/features/auth/schemas/authSchemas";
+import { getApiErrorMessage } from "@/lib/axios";
+import { useAuthStore } from "@/store/authStore";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Login – SRFOOD" }] }),
@@ -13,57 +31,173 @@ export const Route = createFileRoute("/auth")({
 });
 
 function AuthPage() {
-  const { registerUser, loginUser } = useStore();
-  const nav = useNavigate();
+  const [pendingMobile, setPendingMobile] = useState<string | null>(null);
 
   return (
     <div className="max-w-md mx-auto px-4 py-10">
       <h1 className="text-2xl font-bold text-center mb-6">Welcome to SRFOOD</h1>
       <div className="bg-card border rounded-2xl p-5">
         <Tabs defaultValue="login">
-          <TabsList className="grid grid-cols-2 mb-4"><TabsTrigger value="login">Login</TabsTrigger><TabsTrigger value="signup">Sign Up</TabsTrigger></TabsList>
-          <TabsContent value="login"><LoginForm onDone={(email) => {
-            let u = loginUser(email);
-            if (!u && email === "user@srfood.in") {
-              u = registerUser({ name: "Demo User", email, phone: "9876543210" });
-            }
-            if (u) { toast.success(`Welcome back, ${u.name}`); nav({ to: "/" }); }
-            else toast.error("No account with this email. Please sign up.");
-          }} /></TabsContent>
-          <TabsContent value="signup"><SignupForm onDone={(u) => { registerUser(u); toast.success("Account created!"); nav({ to: "/" }); }} /></TabsContent>
+          <TabsList className="grid grid-cols-2 mb-4">
+            <TabsTrigger value="login">Login</TabsTrigger>
+            <TabsTrigger value="signup">Sign Up</TabsTrigger>
+          </TabsList>
+          <TabsContent value="login">
+            <LoginForm />
+          </TabsContent>
+          <TabsContent value="signup">
+            {pendingMobile ? (
+              <OtpForm mobile={pendingMobile} />
+            ) : (
+              <SignupForm onRegistered={setPendingMobile} />
+            )}
+          </TabsContent>
         </Tabs>
       </div>
       <p className="text-center text-xs text-muted-foreground mt-4">
-        Admin? <Link to="/admin" className="text-primary hover:underline">Go to Admin Panel</Link>
+        Admin?{" "}
+        <Link to="/admin" className="text-primary hover:underline">
+          Go to Admin Panel
+        </Link>
       </p>
     </div>
   );
 }
 
+function LoginForm() {
+  const nav = useNavigate();
+  const setSession = useAuthStore((s) => s.setSession);
+  const {
+    register: field,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginFormValues>({ resolver: zodResolver(loginSchema) });
 
-function LoginForm({ onDone }: { onDone: (email: string) => void }) {
-  const [email, setEmail] = useState("user@srfood.in");
-  const [password, setPassword] = useState("user123");
+  const onSubmit = async (values: LoginFormValues) => {
+    try {
+      const { tokens, user } = await login(values.identifier, values.password);
+      setSession(user, tokens.accessToken, tokens.refreshToken);
+      toast.success(`Welcome back, ${user.name}`);
+      nav({ to: "/" });
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Invalid email/mobile or password"));
+    }
+  };
+
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onDone(email); }} className="space-y-3">
-      <div className="space-y-1.5"><Label>Email</Label><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-      <div className="space-y-1.5"><Label>Password</Label><Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} /></div>
-      <p className="text-xs text-muted-foreground">Demo credentials prefilled: <span className="font-medium">user@srfood.in / user123</span></p>
-      <Button type="submit" className="w-full rounded-full">Login</Button>
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+      <div className="space-y-1.5">
+        <Label>Email or Mobile</Label>
+        <Input {...field("identifier")} />
+        {errors.identifier && (
+          <p className="text-xs text-destructive">{errors.identifier.message}</p>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        <Label>Password</Label>
+        <Input type="password" {...field("password")} />
+        {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+      </div>
+      <Button type="submit" className="w-full rounded-full" disabled={isSubmitting}>
+        {isSubmitting ? "Logging in…" : "Login"}
+      </Button>
     </form>
   );
 }
 
-function SignupForm({ onDone }: { onDone: (u: { name: string; email: string; phone: string }) => void }) {
-  const [f, setF] = useState({ name: "Demo User", email: "user@srfood.in", phone: "9876543210" });
+function SignupForm({ onRegistered }: { onRegistered: (mobile: string) => void }) {
+  const {
+    register: field,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<SignupFormValues>({ resolver: zodResolver(signupSchema) });
+
+  const onSubmit = async (values: SignupFormValues) => {
+    try {
+      await registerAccount(values);
+      toast.success("Account created — enter the OTP sent to your mobile");
+      onRegistered(values.mobile);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Could not create account"));
+    }
+  };
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onDone(f); }} className="space-y-3">
-      <div className="space-y-1.5"><Label>Full Name</Label><Input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-      <div className="space-y-1.5"><Label>Email</Label><Input type="email" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
-      <div className="space-y-1.5"><Label>Phone</Label><Input required value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></div>
-      <div className="space-y-1.5"><Label>Password</Label><Input type="password" required placeholder="Any password (demo)" /></div>
-      <Button type="submit" className="w-full rounded-full">Create Account</Button>
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+      <div className="space-y-1.5">
+        <Label>Full Name</Label>
+        <Input {...field("name")} />
+        {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+      </div>
+      <div className="space-y-1.5">
+        <Label>Email</Label>
+        <Input type="email" {...field("email")} />
+        {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+      </div>
+      <div className="space-y-1.5">
+        <Label>Mobile</Label>
+        <Input {...field("mobile")} />
+        {errors.mobile && <p className="text-xs text-destructive">{errors.mobile.message}</p>}
+      </div>
+      <div className="space-y-1.5">
+        <Label>Password</Label>
+        <Input type="password" {...field("password")} />
+        {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+      </div>
+      <Button type="submit" className="w-full rounded-full" disabled={isSubmitting}>
+        {isSubmitting ? "Creating account…" : "Create Account"}
+      </Button>
+    </form>
+  );
+}
+
+function OtpForm({ mobile }: { mobile: string }) {
+  const nav = useNavigate();
+  const setSession = useAuthStore((s) => s.setSession);
+  const {
+    register: field,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<OtpFormValues>({ resolver: zodResolver(otpSchema) });
+
+  const onSubmit = async (values: OtpFormValues) => {
+    try {
+      const { tokens, user } = await verifyRegisterOtp(mobile, values.code);
+      setSession(user, tokens.accessToken, tokens.refreshToken);
+      toast.success("Account verified!");
+      nav({ to: "/" });
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Incorrect or expired OTP"));
+    }
+  };
+
+  const handleResend = async () => {
+    try {
+      await resendOtp(mobile);
+      toast.success("OTP resent");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Could not resend OTP"));
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+      <p className="text-sm text-muted-foreground">Enter the 6-digit code sent to +91 {mobile}</p>
+      <div className="space-y-1.5">
+        <Label>OTP Code</Label>
+        <Input inputMode="numeric" maxLength={6} {...field("code")} />
+        {errors.code && <p className="text-xs text-destructive">{errors.code.message}</p>}
+      </div>
+      <Button type="submit" className="w-full rounded-full" disabled={isSubmitting}>
+        {isSubmitting ? "Verifying…" : "Verify & Continue"}
+      </Button>
+      <button
+        type="button"
+        onClick={handleResend}
+        className="w-full text-center text-xs text-primary hover:underline"
+      >
+        Resend OTP
+      </button>
     </form>
   );
 }

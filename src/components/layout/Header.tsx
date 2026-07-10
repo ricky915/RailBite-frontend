@@ -6,11 +6,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { AppSidebar } from "./AppSidebar";
-import { useStore } from "@/lib/store";
+import { logoutRequest } from "@/features/auth/services/authApi";
+import { useAuthStore } from "@/store/authStore";
+import { useCartStore, selectCartCount } from "@/store/cartStore";
 
 export function Header() {
-  const { cartCount, currentUser, logout } = useStore();
+  const cartCount = useCartStore(selectCartCount);
+  const currentUser = useAuthStore((s) => s.user);
+  const refreshToken = useAuthStore((s) => s.refreshToken);
+  const storeLogout = useAuthStore((s) => s.logout);
   const nav = useNavigate();
+  const logout = () => {
+    if (refreshToken) void logoutRequest(refreshToken).catch(() => undefined);
+    storeLogout();
+  };
   const [q, setQ] = useState("");
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,12 +35,18 @@ export function Header() {
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="p-0 w-72">
-            <div className="p-4 border-b"><Logo /></div>
-            <div className="-mt-[72px] pt-[72px]"><AppSidebar /></div>
+            <div className="p-4 border-b">
+              <Logo />
+            </div>
+            <div className="-mt-[72px] pt-[72px]">
+              <AppSidebar />
+            </div>
           </SheetContent>
         </Sheet>
 
-        <Link to="/" className="shrink-0"><Logo /></Link>
+        <Link to="/" className="shrink-0">
+          <Logo />
+        </Link>
 
         <button className="hidden md:flex items-center gap-2 px-3 py-2 rounded-lg border hover:border-primary/40 hover:bg-accent transition text-left">
           <MapPin className="w-4 h-4 text-primary" />
@@ -61,8 +76,16 @@ export function Header() {
             </Button>
           </div>
         ) : (
-          <Button asChild variant="outline" size="sm" className="hidden md:inline-flex h-11 rounded-full px-4 gap-2">
-            <Link to="/auth"><User className="w-4 h-4" /><span>Login / Sign up</span></Link>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="hidden md:inline-flex h-11 rounded-full px-4 gap-2"
+          >
+            <Link to="/auth">
+              <User className="w-4 h-4" />
+              <span>Login / Sign up</span>
+            </Link>
           </Button>
         )}
         <Button asChild size="sm" className="h-11 rounded-full px-4 gap-2 shadow-pop">
