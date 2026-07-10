@@ -1,8 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { useStore, type Order } from "@/lib/store";
-import type { Food } from "@/data/foods";
-import { CATEGORIES } from "@/data/foods";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +48,44 @@ import {
 import { toast } from "sonner";
 import { logoutRequest } from "@/features/auth/services/authApi";
 import { isAdminRole, useAuthStore } from "@/store/authStore";
+import { getApiErrorMessage } from "@/lib/axios";
+import {
+  getDashboardSummary,
+  listAdminOrders,
+  updateOrderStatus,
+  listAdminUsers,
+  setUserBlocked,
+} from "@/features/admin/services/adminApi";
+import { nextValidStatuses, statusLabel } from "@/features/admin/orderStatusTransitions";
+import {
+  getPrimaryRestaurant,
+  getRestaurantMenu,
+  createMenuItem,
+  updateMenuItem,
+  deleteMenuItem,
+  type MenuItemPayload,
+} from "@/features/menu/services/menuApi";
+import { paiseToRupees } from "@/features/menu/mappers";
+import type { ApiCategory, ApiMenuItem } from "@/features/menu/types";
+import { listAdminRatings, moderateRating } from "@/features/ratings/services/ratingsApi";
+import {
+  getHomepage,
+  updateHomepage,
+  getFaqs,
+  updateFaqs,
+  getPrivacyPolicy,
+  updatePrivacyPolicy,
+  getTerms,
+  updateTerms,
+  getSettings,
+  updateSettings,
+} from "@/features/cms/services/cmsApi";
+import type {
+  FaqContent,
+  HomepageContent,
+  LegalContent,
+  SettingsContent,
+} from "@/features/cms/types";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "Admin Panel – SRFOOD" }] }),
@@ -181,38 +217,46 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
 }
 
 function Dashboard() {
-  const { orders, users, menu } = useStore();
-  const revenue = orders.filter((o) => o.paid).reduce((a, o) => a + o.total, 0);
-  const pending = orders.filter((o) => o.status !== "Delivered" && o.status !== "Cancelled").length;
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-dashboard"],
+    queryFn: getDashboardSummary,
+  });
+
+  if (isLoading || !data) {
+    return <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>;
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-4">
-        <Stat label="Total Revenue" value={`₹${revenue}`} hint="Paid orders only" />
-        <Stat label="Orders" value={orders.length} hint={`${pending} pending`} />
-        <Stat label="Users" value={users.length} />
-        <Stat label="Menu Items" value={menu.length} />
+        <Stat
+          label="Total Revenue"
+          value={`₹${paiseToRupees(data.totalRevenuePaise)}`}
+          hint="Captured payments only"
+        />
+        <Stat label="Orders" value={data.totalOrders} hint={`${data.pendingOrders} pending`} />
+        <Stat label="Users" value={data.totalUsers} />
+        <Stat label="Menu Items" value={data.totalMenuItems} />
       </div>
       <div className="bg-card border rounded-2xl p-5">
         <h2 className="font-bold mb-3">Recent Orders</h2>
-        {!orders.length ? (
+        {!data.recentOrders.length ? (
           <p className="text-sm text-muted-foreground">No orders yet.</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>ID</TableHead>
-                <TableHead>Customer</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.slice(0, 5).map((o) => (
-                <TableRow key={o.id}>
-                  <TableCell className="font-mono text-xs">{o.id}</TableCell>
-                  <TableCell>{o.userEmail}</TableCell>
-                  <TableCell>₹{o.total}</TableCell>
-                  <TableCell>{o.status}</TableCell>
+              {data.recentOrders.map((o) => (
+                <TableRow key={o._id}>
+                  <TableCell className="font-mono text-xs">{o.orderId}</TableCell>
+                  <TableCell>₹{paiseToRupees(o.grandTotal)}</TableCell>
+                  <TableCell>{statusLabel(o.status)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -224,14 +268,63 @@ function Dashboard() {
 }
 
 function MenuAdmin() {
-  const { menu, saveMenuItem, deleteMenuItem } = useStore();
-  const [editing, setEditing] = useState<Food | null>(null);
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-menu"],
+    queryFn: async () => {
+      const restaurant = await getPrimaryRestaurant();
+      if (!restaurant)
+        return {
+          restaurantId: null as string | null,
+          categories: [] as ApiCategory[],
+          items: [] as ApiMenuItem[],
+        };
+      const menu = await getRestaurantMenu(restaurant._id);
+      return { restaurantId: restaurant._id, categories: menu.categories, items: menu.items };
+    },
+  });
+  const restaurantId = data?.restaurantId ?? null;
+  const categories = data?.categories ?? [];
+  const items = data?.items ?? [];
+  const categoryName = (id: string) => categories.find((c) => c._id === id)?.name ?? "—";
+
+  const [editing, setEditing] = useState<ApiMenuItem | null>(null);
   const [open, setOpen] = useState(false);
-  const [confirmDel, setConfirmDel] = useState<Food | null>(null);
+  const [confirmDel, setConfirmDel] = useState<ApiMenuItem | null>(null);
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-menu"] });
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: MenuItemPayload) =>
+      editing ? updateMenuItem(editing._id, payload) : createMenuItem(payload),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Saved");
+      setOpen(false);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteMenuItem(id),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Deleted");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>;
+  if (!restaurantId)
+    return (
+      <p className="text-sm text-muted-foreground py-10 text-center">
+        No restaurant found — seed one first.
+      </p>
+    );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-bold text-lg">Menu Items ({menu.length})</h2>
+        <h2 className="font-bold text-lg">Menu Items ({items.length})</h2>
         <Button
           onClick={() => {
             setEditing(null);
@@ -254,17 +347,17 @@ function MenuAdmin() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {menu.map((f) => (
-              <TableRow key={f.id}>
+            {items.map((f) => (
+              <TableRow key={f._id}>
                 <TableCell>
                   <div className="flex items-center gap-3">
-                    <img src={f.image} alt="" className="w-10 h-10 rounded object-cover" />
+                    <img src={f.imageUrl} alt="" className="w-10 h-10 rounded object-cover" />
                     <div className="font-medium">{f.name}</div>
                   </div>
                 </TableCell>
-                <TableCell>{f.category}</TableCell>
-                <TableCell>₹{f.price}</TableCell>
-                <TableCell>{f.veg ? "Yes" : "No"}</TableCell>
+                <TableCell>{categoryName(f.categoryId)}</TableCell>
+                <TableCell>₹{paiseToRupees(f.price)}</TableCell>
+                <TableCell>{f.isVeg ? "Yes" : "No"}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex gap-1 justify-end">
                     <Button
@@ -290,12 +383,11 @@ function MenuAdmin() {
       <MenuPanel
         open={open}
         onOpenChange={setOpen}
-        food={editing}
-        onSave={(f) => {
-          saveMenuItem(f);
-          toast.success("Saved");
-          setOpen(false);
-        }}
+        item={editing}
+        categories={categories}
+        onSave={(payload) =>
+          saveMutation.mutate(restaurantId ? { ...payload, restaurantId } : payload)
+        }
       />
       <ConfirmDialog
         open={!!confirmDel}
@@ -307,10 +399,7 @@ function MenuAdmin() {
         destructive
         onCancel={() => setConfirmDel(null)}
         onConfirm={() => {
-          if (confirmDel) {
-            deleteMenuItem(confirmDel.id);
-            toast.success("Deleted");
-          }
+          if (confirmDel) deleteMutation.mutate(confirmDel._id);
           setConfirmDel(null);
         }}
       />
@@ -365,38 +454,60 @@ function ConfirmDialog({
   );
 }
 
+interface MenuDraft {
+  name: string;
+  shortDescription: string;
+  price: number;
+  imageUrl: string;
+  isVeg: boolean;
+  categoryId: string;
+}
+
 function MenuPanel({
   open,
   onOpenChange,
-  food,
+  item,
+  categories,
   onSave,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  food: Food | null;
-  onSave: (f: Food) => void;
+  item: ApiMenuItem | null;
+  categories: ApiCategory[];
+  onSave: (payload: MenuItemPayload) => void;
 }) {
-  const empty: Food = {
-    id: "",
+  const empty: MenuDraft = {
     name: "",
-    desc: "",
+    shortDescription: "",
     price: 0,
-    image: "",
-    veg: true,
-    category: CATEGORIES[0],
+    imageUrl: "",
+    isVeg: true,
+    categoryId: categories[0]?._id ?? "",
   };
-  const [f, setF] = useState<Food>(food ?? empty);
+  const toDraft = (i: ApiMenuItem | null): MenuDraft =>
+    i
+      ? {
+          name: i.name,
+          shortDescription: i.shortDescription ?? "",
+          price: paiseToRupees(i.price),
+          imageUrl: i.imageUrl ?? "",
+          isVeg: i.isVeg,
+          categoryId: i.categoryId,
+        }
+      : empty;
+  const [f, setF] = useState<MenuDraft>(toDraft(item));
+
   return (
     <Sheet
       open={open}
       onOpenChange={(o) => {
         onOpenChange(o);
-        if (o) setF(food ?? empty);
+        if (o) setF(toDraft(item));
       }}
     >
       <SheetContent side="right" className="w-[380px] sm:max-w-[380px] flex flex-col p-0">
         <SheetHeader className="p-5 border-b">
-          <SheetTitle>{food ? "Edit Item" : "Add Menu Item"}</SheetTitle>
+          <SheetTitle>{item ? "Edit Item" : "Add Menu Item"}</SheetTitle>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
           <div className="space-y-1.5">
@@ -407,8 +518,8 @@ function MenuPanel({
             <Label>Description</Label>
             <Textarea
               rows={3}
-              value={f.desc}
-              onChange={(e) => setF({ ...f, desc: e.target.value })}
+              value={f.shortDescription}
+              onChange={(e) => setF({ ...f, shortDescription: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -422,14 +533,14 @@ function MenuPanel({
             </div>
             <div className="space-y-1.5">
               <Label>Category</Label>
-              <Select value={f.category} onValueChange={(v) => setF({ ...f, category: v })}>
+              <Select value={f.categoryId} onValueChange={(v) => setF({ ...f, categoryId: v })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
+                  {categories.map((c) => (
+                    <SelectItem key={c._id} value={c._id}>
+                      {c.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -439,20 +550,20 @@ function MenuPanel({
           <div className="space-y-1.5">
             <Label>Image URL</Label>
             <Input
-              value={f.image}
-              onChange={(e) => setF({ ...f, image: e.target.value })}
+              value={f.imageUrl}
+              onChange={(e) => setF({ ...f, imageUrl: e.target.value })}
               placeholder="https://..."
             />
           </div>
-          {f.image && (
-            <img src={f.image} alt="" className="w-full h-40 object-cover rounded-lg border" />
+          {f.imageUrl && (
+            <img src={f.imageUrl} alt="" className="w-full h-40 object-cover rounded-lg border" />
           )}
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
               id="veg"
-              checked={f.veg}
-              onChange={(e) => setF({ ...f, veg: e.target.checked })}
+              checked={f.isVeg}
+              onChange={(e) => setF({ ...f, isVeg: e.target.checked })}
             />
             <Label htmlFor="veg">Vegetarian</Label>
           </div>
@@ -468,11 +579,18 @@ function MenuPanel({
           <Button
             className="flex-1 sm:flex-none"
             onClick={() => {
-              if (!f.name || !f.image) {
-                toast.error("Name and image required");
+              if (!f.name || !f.imageUrl || !f.categoryId) {
+                toast.error("Name, image and category are required");
                 return;
               }
-              onSave({ ...f, id: f.id || f.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") });
+              onSave({
+                name: f.name,
+                shortDescription: f.shortDescription,
+                price: Math.round(f.price * 100),
+                imageUrl: f.imageUrl,
+                isVeg: f.isVeg,
+                categoryId: f.categoryId,
+              });
             }}
           >
             Save
@@ -484,24 +602,43 @@ function MenuPanel({
 }
 
 function OrdersAdmin() {
-  const { orders, updateOrderStatus } = useStore();
-  const statuses: Order["status"][] = [
-    "Placed",
-    "Preparing",
-    "Out for Delivery",
-    "Delivered",
-    "Cancelled",
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-orders"],
+    queryFn: () => listAdminOrders({ limit: 100 }),
+  });
+  const orders = data?.items ?? [];
+  const revenue = orders
+    .filter((o) => o.paymentStatus === "captured")
+    .reduce((a, o) => a + o.grandTotal, 0);
+  const TERMINAL = [
+    "DELIVERED",
+    "COMPLETED",
+    "CANCELLED_BY_PASSENGER",
+    "CANCELLED_BY_RESTAURANT",
+    "CANCELLED_BY_ADMIN",
+    "REFUND_PROCESSED",
+    "PAYMENT_FAILED",
   ];
-  const revenue = orders.filter((o) => o.paid).reduce((a, o) => a + o.total, 0);
+  const pending = orders.filter((o) => !TERMINAL.includes(o.status)).length;
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => updateOrderStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-orders"] });
+      toast.success("Status updated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>;
+
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-3">
         <Stat label="Total Orders" value={orders.length} />
-        <Stat label="Revenue Collected" value={`₹${revenue}`} />
-        <Stat
-          label="Pending"
-          value={orders.filter((o) => o.status !== "Delivered" && o.status !== "Cancelled").length}
-        />
+        <Stat label="Revenue Collected" value={`₹${paiseToRupees(revenue)}`} />
+        <Stat label="Pending" value={pending} />
       </div>
       <div className="bg-card border rounded-2xl overflow-hidden">
         {!orders.length ? (
@@ -511,7 +648,6 @@ function OrdersAdmin() {
             <TableHeader>
               <TableRow>
                 <TableHead>Order</TableHead>
-                <TableHead>Customer</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead>Payment</TableHead>
                 <TableHead>Total</TableHead>
@@ -519,47 +655,52 @@ function OrdersAdmin() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.map((o) => (
-                <TableRow key={o.id}>
-                  <TableCell>
-                    <div className="font-mono text-xs">{o.id}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(o.createdAt).toLocaleString()}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm">{o.userEmail}</div>
-                    <div className="text-xs text-muted-foreground">PNR {o.pnr}</div>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {o.items.map((i) => `${i.name}×${i.qty}`).join(", ")}
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm">{o.payment}</div>
-                    <div className={`text-xs ${o.paid ? "text-green-600" : "text-amber-600"}`}>
-                      {o.paid ? "Paid" : "Unpaid"}
-                    </div>
-                  </TableCell>
-                  <TableCell className="font-bold">₹{o.total}</TableCell>
-                  <TableCell>
-                    <Select
-                      value={o.status}
-                      onValueChange={(v) => updateOrderStatus(o.id, v as Order["status"])}
-                    >
-                      <SelectTrigger className="w-40 h-8">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {statuses.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {orders.map((o) => {
+                const nextOptions = nextValidStatuses(o.status);
+                return (
+                  <TableRow key={o._id}>
+                    <TableCell>
+                      <div className="font-mono text-xs">{o.orderId}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(o.createdAt).toLocaleString()}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {o.items.map((i) => `${i.name}×${i.quantity}`).join(", ")}
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm">{o.paymentMethod}</div>
+                      <div
+                        className={`text-xs ${o.paymentStatus === "captured" ? "text-green-600" : "text-amber-600"}`}
+                      >
+                        {o.paymentStatus}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-bold">₹{paiseToRupees(o.grandTotal)}</TableCell>
+                    <TableCell>
+                      {nextOptions.length === 0 ? (
+                        <span className="text-xs font-semibold">{statusLabel(o.status)}</span>
+                      ) : (
+                        <Select
+                          key={o.status}
+                          onValueChange={(v) => statusMutation.mutate({ id: o._id, status: v })}
+                        >
+                          <SelectTrigger className="w-44 h-8">
+                            <SelectValue placeholder={statusLabel(o.status)} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {nextOptions.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {statusLabel(s)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
@@ -569,7 +710,22 @@ function OrdersAdmin() {
 }
 
 function UsersAdmin() {
-  const { users, toggleUserBlock } = useStore();
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: () => listAdminUsers({ limit: 100 }),
+  });
+  const users = data?.items ?? [];
+
+  const blockMutation = useMutation({
+    mutationFn: ({ id, isBlocked }: { id: string; isBlocked: boolean }) =>
+      setUserBlocked(id, isBlocked),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>;
+
   return (
     <div className="space-y-4">
       <h2 className="font-bold text-lg">Registered Users ({users.length})</h2>
@@ -584,7 +740,7 @@ function UsersAdmin() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
+                <TableHead>Mobile</TableHead>
                 <TableHead>Joined</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Action</TableHead>
@@ -592,23 +748,27 @@ function UsersAdmin() {
             </TableHeader>
             <TableBody>
               {users.map((u) => (
-                <TableRow key={u.id}>
+                <TableRow key={u._id}>
                   <TableCell className="font-medium">{u.name}</TableCell>
                   <TableCell>{u.email}</TableCell>
-                  <TableCell>{u.phone}</TableCell>
+                  <TableCell>{u.mobile}</TableCell>
                   <TableCell className="text-xs">
                     {new Date(u.createdAt).toLocaleDateString()}
                   </TableCell>
                   <TableCell>
                     <span
-                      className={`text-xs font-semibold ${u.blocked ? "text-destructive" : "text-green-600"}`}
+                      className={`text-xs font-semibold ${u.isBlocked ? "text-destructive" : "text-green-600"}`}
                     >
-                      {u.blocked ? "Blocked" : "Active"}
+                      {u.isBlocked ? "Blocked" : "Active"}
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="outline" onClick={() => toggleUserBlock(u.id)}>
-                      {u.blocked ? "Unblock" : "Block"}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => blockMutation.mutate({ id: u._id, isBlocked: !u.isBlocked })}
+                    >
+                      {u.isBlocked ? "Unblock" : "Block"}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -622,76 +782,174 @@ function UsersAdmin() {
 }
 
 function ReviewsAdmin() {
-  const { content, addReview, deleteReview } = useStore();
-  const [n, setN] = useState({ name: "", text: "", rating: 5 });
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-ratings"],
+    queryFn: () => listAdminRatings({ limit: 50 }),
+  });
+  const ratings = data ?? [];
+
+  const moderateMutation = useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string;
+      patch: { isHidden?: boolean; isFeatured?: boolean };
+    }) => moderateRating(id, patch),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-ratings"] }),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>;
+
   return (
     <div className="space-y-4">
-      <h2 className="font-bold text-lg">Traveler Reviews (shown on homepage)</h2>
-      <div className="bg-card border rounded-2xl p-5 grid md:grid-cols-4 gap-3">
-        <Input
-          placeholder="Name"
-          value={n.name}
-          onChange={(e) => setN({ ...n, name: e.target.value })}
-        />
-        <Input
-          placeholder="Review text"
-          className="md:col-span-2"
-          value={n.text}
-          onChange={(e) => setN({ ...n, text: e.target.value })}
-        />
-        <div className="flex gap-2">
-          <Input
-            type="number"
-            min={1}
-            max={5}
-            value={n.rating}
-            onChange={(e) => setN({ ...n, rating: Number(e.target.value) })}
-          />
-          <Button
-            onClick={() => {
-              if (!n.name || !n.text) return toast.error("Fill all fields");
-              addReview({
-                name: n.name,
-                text: n.text,
-                rating: Math.max(1, Math.min(5, n.rating)),
-                initial: n.name[0].toUpperCase(),
-              });
-              setN({ name: "", text: "", rating: 5 });
-              toast.success("Review added");
-            }}
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
+      <h2 className="font-bold text-lg">Ratings &amp; Reviews Moderation</h2>
+      {!ratings.length ? (
+        <p className="text-sm text-muted-foreground">
+          No ratings submitted yet — they appear here once passengers rate a delivered order.
+        </p>
+      ) : (
+        <div className="grid md:grid-cols-3 gap-3">
+          {ratings.map((r) => {
+            const name = typeof r.passengerId === "string" ? "Traveler" : r.passengerId.name;
+            return (
+              <div
+                key={r._id}
+                className={`bg-card border rounded-2xl p-4 ${r.isHidden ? "opacity-50" : ""}`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-semibold">{name}</div>
+                  <div className="flex gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title={r.isFeatured ? "Unfeature" : "Feature on homepage"}
+                      onClick={() =>
+                        moderateMutation.mutate({ id: r._id, patch: { isFeatured: !r.isFeatured } })
+                      }
+                    >
+                      <Star
+                        className={`w-4 h-4 ${r.isFeatured ? "fill-primary text-primary" : ""}`}
+                      />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title={r.isHidden ? "Unhide" : "Hide"}
+                      onClick={() =>
+                        moderateMutation.mutate({ id: r._id, patch: { isHidden: !r.isHidden } })
+                      }
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="text-xs text-primary mb-2">
+                  {"★".repeat(r.rating)}
+                  {"☆".repeat(5 - r.rating)}
+                </div>
+                <p className="text-sm text-foreground/85">
+                  {r.reviewText ? (
+                    `"${r.reviewText}"`
+                  ) : (
+                    <span className="italic text-muted-foreground">No written review</span>
+                  )}
+                </p>
+                {r.isHidden && (
+                  <p className="text-xs text-destructive mt-2">Hidden from public view</p>
+                )}
+              </div>
+            );
+          })}
         </div>
-      </div>
-      <div className="grid md:grid-cols-3 gap-3">
-        {content.reviews.map((r) => (
-          <div key={r.id} className="bg-card border rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="font-semibold">{r.name}</div>
-              <Button size="icon" variant="ghost" onClick={() => deleteReview(r.id)}>
-                <Trash2 className="w-4 h-4 text-destructive" />
-              </Button>
-            </div>
-            <div className="text-xs text-primary mb-2">
-              {"★".repeat(r.rating)}
-              {"☆".repeat(5 - r.rating)}
-            </div>
-            <p className="text-sm text-foreground/85">"{r.text}"</p>
-          </div>
-        ))}
-      </div>
+      )}
     </div>
   );
 }
 
 function ContentAdmin() {
-  const { content, updateContent } = useStore();
-  const [c, setC] = useState(content);
-  const save = () => {
-    updateContent(c);
-    toast.success("Content updated");
+  const queryClient = useQueryClient();
+  const emptyHomepage: HomepageContent = {
+    hero: [],
+    offer: { code: "", percent: 0, headline: "", sub: "" },
   };
+  const emptyFaq: FaqContent = { faqs: [] };
+  const emptyLegal: LegalContent = { text: "" };
+  const emptySettings: SettingsContent = {
+    social: {},
+    contactEmail: "",
+    contactPhone: "",
+    contactAddress: "",
+  };
+
+  const { data: homepage } = useQuery({
+    queryKey: ["cms-homepage"],
+    queryFn: () => getHomepage().catch(() => emptyHomepage),
+  });
+  const { data: faqData } = useQuery({
+    queryKey: ["cms-faqs"],
+    queryFn: () => getFaqs().catch(() => emptyFaq),
+  });
+  const { data: privacy } = useQuery({
+    queryKey: ["cms-privacy"],
+    queryFn: () => getPrivacyPolicy().catch(() => emptyLegal),
+  });
+  const { data: terms } = useQuery({
+    queryKey: ["cms-terms"],
+    queryFn: () => getTerms().catch(() => emptyLegal),
+  });
+  const { data: settings } = useQuery({
+    queryKey: ["cms-settings"],
+    queryFn: () => getSettings().catch(() => emptySettings),
+  });
+
+  const [heroDraft, setHeroDraft] = useState<HomepageContent | null>(null);
+  const [faqDraft, setFaqDraft] = useState<FaqContent | null>(null);
+  const [privacyDraft, setPrivacyDraft] = useState<LegalContent | null>(null);
+  const [termsDraft, setTermsDraft] = useState<LegalContent | null>(null);
+  const [settingsDraft, setSettingsDraft] = useState<SettingsContent | null>(null);
+
+  useEffect(() => {
+    if (homepage && !heroDraft) setHeroDraft(homepage);
+  }, [homepage, heroDraft]);
+  useEffect(() => {
+    if (faqData && !faqDraft) setFaqDraft(faqData);
+  }, [faqData, faqDraft]);
+  useEffect(() => {
+    if (privacy && !privacyDraft) setPrivacyDraft(privacy);
+  }, [privacy, privacyDraft]);
+  useEffect(() => {
+    if (terms && !termsDraft) setTermsDraft(terms);
+  }, [terms, termsDraft]);
+  useEffect(() => {
+    if (settings && !settingsDraft) setSettingsDraft(settings);
+  }, [settings, settingsDraft]);
+
+  const save = async () => {
+    try {
+      if (heroDraft) await updateHomepage(heroDraft);
+      if (faqDraft) await updateFaqs(faqDraft);
+      if (privacyDraft) await updatePrivacyPolicy(privacyDraft);
+      if (termsDraft) await updateTerms(termsDraft);
+      if (settingsDraft) await updateSettings(settingsDraft);
+      toast.success("Content updated");
+      queryClient.invalidateQueries({ queryKey: ["cms-homepage"] });
+      queryClient.invalidateQueries({ queryKey: ["cms-faqs"] });
+      queryClient.invalidateQueries({ queryKey: ["cms-privacy"] });
+      queryClient.invalidateQueries({ queryKey: ["cms-terms"] });
+      queryClient.invalidateQueries({ queryKey: ["cms-settings"] });
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    }
+  };
+
+  if (!heroDraft || !faqDraft || !privacyDraft || !termsDraft || !settingsDraft) {
+    return <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>;
+  }
+  const c = heroDraft;
+
   return (
     <div className="space-y-6">
       <div className="bg-card border rounded-2xl p-5 space-y-4">
@@ -707,7 +965,7 @@ function ContentAdmin() {
               onChange={(e) => {
                 const h = [...c.hero];
                 h[i] = { ...s, eyebrow: e.target.value };
-                setC({ ...c, hero: h });
+                setHeroDraft({ ...c, hero: h });
               }}
             />
             <Input
@@ -716,7 +974,7 @@ function ContentAdmin() {
               onChange={(e) => {
                 const h = [...c.hero];
                 h[i] = { ...s, title: e.target.value };
-                setC({ ...c, hero: h });
+                setHeroDraft({ ...c, hero: h });
               }}
             />
             <Input
@@ -725,7 +983,7 @@ function ContentAdmin() {
               onChange={(e) => {
                 const h = [...c.hero];
                 h[i] = { ...s, desc: e.target.value };
-                setC({ ...c, hero: h });
+                setHeroDraft({ ...c, hero: h });
               }}
             />
             <div className="flex gap-2">
@@ -735,13 +993,13 @@ function ContentAdmin() {
                 onChange={(e) => {
                   const h = [...c.hero];
                   h[i] = { ...s, cta: e.target.value };
-                  setC({ ...c, hero: h });
+                  setHeroDraft({ ...c, hero: h });
                 }}
               />
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => setC({ ...c, hero: c.hero.filter((_, x) => x !== i) })}
+                onClick={() => setHeroDraft({ ...c, hero: c.hero.filter((_, x) => x !== i) })}
               >
                 <Trash2 className="w-4 h-4 text-destructive" />
               </Button>
@@ -752,7 +1010,7 @@ function ContentAdmin() {
           variant="outline"
           size="sm"
           onClick={() =>
-            setC({
+            setHeroDraft({
               ...c,
               hero: [...c.hero, { eyebrow: "", title: "", desc: "", cta: "Order Now" }],
             })
@@ -770,7 +1028,7 @@ function ContentAdmin() {
             <Label>Coupon Code</Label>
             <Input
               value={c.offer.code}
-              onChange={(e) => setC({ ...c, offer: { ...c.offer, code: e.target.value } })}
+              onChange={(e) => setHeroDraft({ ...c, offer: { ...c.offer, code: e.target.value } })}
             />
           </div>
           <div className="space-y-1.5">
@@ -779,7 +1037,7 @@ function ContentAdmin() {
               type="number"
               value={c.offer.percent}
               onChange={(e) =>
-                setC({ ...c, offer: { ...c.offer, percent: Number(e.target.value) } })
+                setHeroDraft({ ...c, offer: { ...c.offer, percent: Number(e.target.value) } })
               }
             />
           </div>
@@ -787,17 +1045,71 @@ function ContentAdmin() {
             <Label>Headline</Label>
             <Input
               value={c.offer.headline}
-              onChange={(e) => setC({ ...c, offer: { ...c.offer, headline: e.target.value } })}
+              onChange={(e) =>
+                setHeroDraft({ ...c, offer: { ...c.offer, headline: e.target.value } })
+              }
             />
           </div>
           <div className="space-y-1.5 md:col-span-4">
             <Label>Subtitle (shown right side)</Label>
             <Input
               value={c.offer.sub}
-              onChange={(e) => setC({ ...c, offer: { ...c.offer, sub: e.target.value } })}
+              onChange={(e) => setHeroDraft({ ...c, offer: { ...c.offer, sub: e.target.value } })}
             />
           </div>
         </div>
+      </div>
+
+      <div className="bg-card border rounded-2xl p-5 space-y-4">
+        <h2 className="font-bold">FAQs</h2>
+        {faqDraft.faqs.map((item, i) => (
+          <div
+            key={i}
+            className="grid md:grid-cols-[1fr_2fr_auto] gap-2 items-start border-b pb-3 last:border-0"
+          >
+            <Input
+              placeholder="Question"
+              value={item.question}
+              onChange={(e) => {
+                const f = [...faqDraft.faqs];
+                f[i] = { ...item, question: e.target.value };
+                setFaqDraft({ faqs: f });
+              }}
+            />
+            <Textarea
+              rows={2}
+              placeholder="Answer"
+              value={item.answer}
+              onChange={(e) => {
+                const f = [...faqDraft.faqs];
+                f[i] = { ...item, answer: e.target.value };
+                setFaqDraft({ faqs: f });
+              }}
+            />
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setFaqDraft({ faqs: faqDraft.faqs.filter((_, x) => x !== i) })}
+            >
+              <Trash2 className="w-4 h-4 text-destructive" />
+            </Button>
+          </div>
+        ))}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            setFaqDraft({
+              faqs: [
+                ...faqDraft.faqs,
+                { question: "", answer: "", displayOrder: faqDraft.faqs.length },
+              ],
+            })
+          }
+        >
+          <Plus className="w-4 h-4 mr-1" />
+          Add FAQ
+        </Button>
       </div>
 
       <div className="bg-card border rounded-2xl p-5 space-y-3">
@@ -807,8 +1119,13 @@ function ContentAdmin() {
             <div key={k} className="space-y-1.5">
               <Label className="capitalize">{k}</Label>
               <Input
-                value={c.social[k]}
-                onChange={(e) => setC({ ...c, social: { ...c.social, [k]: e.target.value } })}
+                value={settingsDraft.social[k] ?? ""}
+                onChange={(e) =>
+                  setSettingsDraft({
+                    ...settingsDraft,
+                    social: { ...settingsDraft.social, [k]: e.target.value },
+                  })
+                }
               />
             </div>
           ))}
@@ -821,22 +1138,24 @@ function ContentAdmin() {
           <div className="space-y-1.5">
             <Label>Email</Label>
             <Input
-              value={c.contactEmail}
-              onChange={(e) => setC({ ...c, contactEmail: e.target.value })}
+              value={settingsDraft.contactEmail}
+              onChange={(e) => setSettingsDraft({ ...settingsDraft, contactEmail: e.target.value })}
             />
           </div>
           <div className="space-y-1.5">
             <Label>Phone</Label>
             <Input
-              value={c.contactPhone}
-              onChange={(e) => setC({ ...c, contactPhone: e.target.value })}
+              value={settingsDraft.contactPhone}
+              onChange={(e) => setSettingsDraft({ ...settingsDraft, contactPhone: e.target.value })}
             />
           </div>
           <div className="space-y-1.5">
             <Label>Address</Label>
             <Input
-              value={c.contactAddress}
-              onChange={(e) => setC({ ...c, contactAddress: e.target.value })}
+              value={settingsDraft.contactAddress}
+              onChange={(e) =>
+                setSettingsDraft({ ...settingsDraft, contactAddress: e.target.value })
+              }
             />
           </div>
         </div>
@@ -848,16 +1167,16 @@ function ContentAdmin() {
           <Label>Privacy Policy</Label>
           <Textarea
             rows={6}
-            value={c.privacy}
-            onChange={(e) => setC({ ...c, privacy: e.target.value })}
+            value={privacyDraft.text}
+            onChange={(e) => setPrivacyDraft({ text: e.target.value })}
           />
         </div>
         <div className="space-y-1.5">
           <Label>Terms of Service</Label>
           <Textarea
             rows={6}
-            value={c.terms}
-            onChange={(e) => setC({ ...c, terms: e.target.value })}
+            value={termsDraft.text}
+            onChange={(e) => setTermsDraft({ text: e.target.value })}
           />
         </div>
       </div>

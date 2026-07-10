@@ -27,3 +27,30 @@ export async function getPopularItems(limit = 5): Promise<ApiMenuItem[]> {
   const { data } = await api.get("/menu/items/popular", { params: { limit } });
   return data.data;
 }
+
+export interface MenuItemPayload {
+  restaurantId?: string;
+  categoryId: string;
+  name: string;
+  shortDescription?: string;
+  price: number;
+  imageUrl?: string;
+  isVeg: boolean;
+}
+
+export async function createMenuItem(payload: MenuItemPayload): Promise<ApiMenuItem> {
+  const { data } = await api.post("/menu/items", payload);
+  return data.data;
+}
+
+export async function updateMenuItem(
+  id: string,
+  payload: Partial<MenuItemPayload>,
+): Promise<ApiMenuItem> {
+  const { data } = await api.patch(`/menu/items/${id}`, payload);
+  return data.data;
+}
+
+export async function deleteMenuItem(id: string): Promise<void> {
+  await api.delete(`/menu/items/${id}`);
+}
