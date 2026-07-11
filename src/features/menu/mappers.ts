@@ -20,7 +20,6 @@ export function mapMenuItemToFood(item: ApiMenuItem, categoryName: string): Food
     rating: item.avgRating || undefined,
     reviewCount: item.ratingCount || undefined,
     ingredients: item.ingredients,
-    restaurantId: item.restaurantId,
   };
 }
 

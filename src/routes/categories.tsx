@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { getPrimaryRestaurant, getRestaurantMenu } from "@/features/menu/services/menuApi";
+import { getMenu } from "@/features/menu/services/menuApi";
 
 export const Route = createFileRoute("/categories")({
   head: () => ({ meta: [{ title: "Categories – SRFOOD" }] }),
@@ -11,9 +11,7 @@ function useCategoriesWithCounts() {
   return useQuery({
     queryKey: ["categories-with-counts"],
     queryFn: async () => {
-      const restaurant = await getPrimaryRestaurant();
-      if (!restaurant) return [];
-      const { categories, items } = await getRestaurantMenu(restaurant._id);
+      const { categories, items } = await getMenu();
       return categories.map((c) => ({
         name: c.name,
         imageUrl: c.imageUrl,

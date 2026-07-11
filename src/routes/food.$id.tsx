@@ -16,7 +16,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { FoodCard } from "@/components/home/FoodCard";
-import { getMenuItem, getRestaurantMenu } from "@/features/menu/services/menuApi";
+import { getMenu, getMenuItem } from "@/features/menu/services/menuApi";
 import { buildCategoryNameMap, mapMenuItemToFood } from "@/features/menu/mappers";
 import { getMenuItemRatings } from "@/features/ratings/services/ratingsApi";
 import { useCartStore } from "@/store/cartStore";
@@ -31,7 +31,7 @@ function useFoodDetail(id: string) {
     queryKey: ["food-detail", id],
     queryFn: async () => {
       const item = await getMenuItem(id);
-      const { categories, items } = await getRestaurantMenu(item.restaurantId);
+      const { categories, items } = await getMenu();
       const nameMap = buildCategoryNameMap(categories);
       const food = mapMenuItemToFood(item, nameMap.get(item.categoryId) ?? "");
       const similar = items
@@ -76,9 +76,7 @@ function FoodDetailPage() {
   const { food, similar } = data;
 
   const handleAddToCart = () => {
-    if (!food.restaurantId) return;
-    const result = addItem(
-      food.restaurantId,
+    addItem(
       {
         menuItemId: food.id,
         name: food.name,
@@ -89,10 +87,6 @@ function FoodDetailPage() {
       },
       qty,
     );
-    if (result === "restaurant-conflict") {
-      toast.error("Your cart has items from another restaurant. Clear your cart first.");
-      return;
-    }
     toast.success(`${food.name} added to cart`);
   };
 

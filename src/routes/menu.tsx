@@ -1,14 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { z } from "zod";
 import { Search, SlidersHorizontal } from "lucide-react";
 import { FoodCard } from "@/components/home/FoodCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getPrimaryRestaurant, getRestaurantMenu } from "@/features/menu/services/menuApi";
+import { getMenu } from "@/features/menu/services/menuApi";
 import { buildCategoryNameMap, mapMenuItemToFood } from "@/features/menu/mappers";
 
+const menuSearchSchema = z.object({
+  q: z.string().optional(),
+  category: z.string().optional(),
+});
+
 export const Route = createFileRoute("/menu")({
+  validateSearch: menuSearchSchema,
   head: () => ({
     meta: [
       { title: "Menu – SRFOOD" },
@@ -26,14 +33,12 @@ type Sort = "popular" | "price-asc" | "price-desc" | "rating";
 
 function useMenuData() {
   return useQuery({
-    queryKey: ["restaurant-menu"],
+    queryKey: ["menu"],
     queryFn: async () => {
-      const restaurant = await getPrimaryRestaurant();
-      if (!restaurant) return { categoryNames: [], foods: [] };
-      const { categories, items } = await getRestaurantMenu(restaurant._id);
+      const { categories, items } = await getMenu();
       const nameMap = buildCategoryNameMap(categories);
       return {
-        categoryNames: categories.map((c) => c.name),
+        categories,
         foods: items.map((item) => mapMenuItemToFood(item, nameMap.get(item.categoryId) ?? "")),
       };
     },
@@ -41,14 +46,22 @@ function useMenuData() {
 }
 
 function MenuPage() {
+  const search = Route.useSearch();
   const { data, isLoading, isError } = useMenuData();
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(search.q ?? "");
   const [cat, setCat] = useState<string>("All");
   const [diet, setDiet] = useState<Diet>("all");
   const [sort, setSort] = useState<Sort>("popular");
 
   const foods = data?.foods ?? [];
-  const categoryNames = data?.categoryNames ?? [];
+  const categories = data?.categories ?? [];
+  const categoryNames = categories.map((c) => c.name);
+
+  useEffect(() => {
+    if (!search.category || !categories.length) return;
+    const match = categories.find((c) => c.slug === search.category);
+    if (match) setCat(match.name);
+  }, [search.category, categories]);
 
   const items = useMemo(() => {
     let r = foods.filter(

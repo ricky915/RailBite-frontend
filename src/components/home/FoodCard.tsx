@@ -14,11 +14,7 @@ export function FoodCard({ food }: { food: Food }) {
   const addItem = useCartStore((s) => s.addItem);
 
   const handleAddToCart = () => {
-    if (!food.restaurantId) {
-      toast.error("This item is not available to add to cart yet");
-      return;
-    }
-    const result = addItem(food.restaurantId, {
+    addItem({
       menuItemId: food.id,
       name: food.name,
       price: food.price,
@@ -26,10 +22,6 @@ export function FoodCard({ food }: { food: Food }) {
       veg: food.veg,
       customizations: [],
     });
-    if (result === "restaurant-conflict") {
-      toast.error("Your cart has items from another restaurant. Clear your cart first.");
-      return;
-    }
     toast.success(`${food.name} added to cart`);
   };
 

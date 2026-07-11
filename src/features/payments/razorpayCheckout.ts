@@ -59,7 +59,7 @@ export async function openRazorpayCheckout(
       key: input.keyId,
       amount: input.amountPaise,
       currency: input.currency,
-      name: "RailBite",
+      name: "SR Food",
       description: "Order payment",
       order_id: input.razorpayOrderId,
       prefill: {

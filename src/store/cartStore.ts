@@ -18,13 +18,8 @@ export interface CartItem {
 }
 
 interface CartState {
-  restaurantId: string | null;
   items: CartItem[];
-  addItem: (
-    restaurantId: string,
-    item: Omit<CartItem, "quantity">,
-    qty?: number,
-  ) => "added" | "restaurant-conflict";
+  addItem: (item: Omit<CartItem, "quantity">, qty?: number) => void;
   setQuantity: (menuItemId: string, qty: number) => void;
   removeItem: (menuItemId: string) => void;
   clear: () => void;
@@ -37,24 +32,18 @@ function itemKey(item: Pick<CartItem, "menuItemId" | "customizations">): string 
 export const useCartStore = create<CartState>()(
   persist(
     (set, get) => ({
-      restaurantId: null,
       items: [],
-      addItem: (restaurantId, item, qty = 1) => {
+      addItem: (item, qty = 1) => {
         const state = get();
-        if (state.restaurantId && state.restaurantId !== restaurantId && state.items.length > 0) {
-          return "restaurant-conflict";
-        }
         const key = itemKey(item);
         const existing = state.items.find((i) => itemKey(i) === key);
         set({
-          restaurantId,
           items: existing
             ? state.items.map((i) =>
                 itemKey(i) === key ? { ...i, quantity: i.quantity + qty } : i,
               )
             : [...state.items, { ...item, quantity: qty }],
         });
-        return "added";
       },
       setQuantity: (menuItemId, qty) =>
         set((state) => ({
@@ -65,9 +54,9 @@ export const useCartStore = create<CartState>()(
         })),
       removeItem: (menuItemId) =>
         set((state) => ({ items: state.items.filter((i) => i.menuItemId !== menuItemId) })),
-      clear: () => set({ items: [], restaurantId: null }),
+      clear: () => set({ items: [] }),
     }),
-    { name: "railbite_cart_v1" },
+    { name: "srfood_cart_v1" },
   ),
 );
 

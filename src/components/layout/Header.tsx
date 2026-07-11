@@ -61,7 +61,7 @@ export function Header() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search for food, cuisine or restaurant…"
+            placeholder="Search for food or cuisine…"
             className="pl-10 h-11 rounded-full bg-muted border-transparent focus-visible:bg-background"
           />
         </form>

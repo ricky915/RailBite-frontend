@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,15 +12,27 @@ import {
   CheckCircle2,
   MapPin,
   Loader2,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react";
 import { useCartStore, selectCartTotal } from "@/store/cartStore";
 import { useAuthStore } from "@/store/authStore";
 import { createOrder } from "@/features/orders/services/ordersApi";
 import { openRazorpayCheckout } from "@/features/payments/razorpayCheckout";
+import { getStations } from "@/features/stations/services/stationsApi";
 import { getApiErrorMessage } from "@/lib/axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/checkout")({
@@ -46,7 +59,6 @@ type Form = z.infer<typeof schema>;
 
 function CheckoutPage() {
   const items = useCartStore((s) => s.items);
-  const restaurantId = useCartStore((s) => s.restaurantId);
   const cartTotal = useCartStore(selectCartTotal);
   const clearCart = useCartStore((s) => s.clear);
   const currentUser = useAuthStore((s) => s.user);
@@ -56,11 +68,18 @@ function CheckoutPage() {
   const [locating, setLocating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [stationOpen, setStationOpen] = useState(false);
+
+  const { data: stations } = useQuery({
+    queryKey: ["stations"],
+    queryFn: () => getStations(),
+  });
 
   const {
     register,
     handleSubmit,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -68,8 +87,11 @@ function CheckoutPage() {
       name: currentUser?.name ?? "",
       email: currentUser?.email ?? "",
       phone: currentUser?.mobile ?? "",
+      station: "",
     },
   });
+
+  const stationValue = watch("station");
 
   const detectLocation = () => {
     if (!("geolocation" in navigator)) {
@@ -85,18 +107,22 @@ function CheckoutPage() {
             `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`,
           );
           const data = await res.json();
-          const place =
+          const place: string =
             data.locality ||
             data.city ||
             data.principalSubdivision ||
             `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
-          setValue("station", place, { shouldValidate: true });
-          toast.success(`Location detected: ${place}`);
+          const match = stations?.find((s) => s.name.toLowerCase().includes(place.toLowerCase()));
+          if (match) {
+            setValue("station", match.name, { shouldValidate: true });
+            toast.success(`Location detected: ${match.name}`);
+          } else {
+            toast.error(`No matching station found near "${place}" — please select one manually`);
+            setStationOpen(true);
+          }
         } catch {
-          setValue("station", `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`, {
-            shouldValidate: true,
-          });
-          toast.success("Coordinates captured");
+          toast.error("Could not detect a nearby station — please select one manually");
+          setStationOpen(true);
         } finally {
           setLocating(false);
         }
@@ -136,7 +162,6 @@ function CheckoutPage() {
   }
 
   const onSubmit = async (data: Form) => {
-    if (!restaurantId) return;
     setSubmitting(true);
     try {
       const { order, payment: paymentInfo } = await createOrder(
@@ -256,7 +281,48 @@ function CheckoutPage() {
               <Input maxLength={10} {...register("pnr")} />
             </Field>
             <Field label="Station / Delivery Location" error={errors.station?.message}>
-              <Input placeholder="e.g. Kanpur Central" {...register("station")} />
+              <Popover open={stationOpen} onOpenChange={setStationOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={stationOpen}
+                    className="w-full justify-between font-normal"
+                  >
+                    <span className={stationValue ? "" : "text-muted-foreground"}>
+                      {stationValue || "Select a station"}
+                    </span>
+                    <ChevronsUpDown className="w-4 h-4 opacity-50 shrink-0" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search stations..." />
+                    <CommandList>
+                      <CommandEmpty>No station found.</CommandEmpty>
+                      <CommandGroup>
+                        {(stations ?? []).map((s) => (
+                          <CommandItem
+                            key={s._id}
+                            value={s.name}
+                            onSelect={() => {
+                              setValue("station", s.name, { shouldValidate: true });
+                              setStationOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={`mr-2 w-4 h-4 ${stationValue === s.name ? "opacity-100" : "opacity-0"}`}
+                            />
+                            {s.name}
+                            {s.code ? ` (${s.code})` : ""}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </Field>
             <Field label="Coach" error={errors.coach?.message}>
               <Input placeholder="e.g. B3" {...register("coach")} />

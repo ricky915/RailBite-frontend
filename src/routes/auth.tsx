@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -23,7 +23,7 @@ import {
   type SignupFormValues,
 } from "@/features/auth/schemas/authSchemas";
 import { getApiErrorMessage } from "@/lib/axios";
-import { useAuthStore } from "@/store/authStore";
+import { isAdminRole, useAuthStore } from "@/store/authStore";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Login – SRFOOD" }] }),
@@ -54,12 +54,6 @@ function AuthPage() {
           </TabsContent>
         </Tabs>
       </div>
-      <p className="text-center text-xs text-muted-foreground mt-4">
-        Admin?{" "}
-        <Link to="/admin" className="text-primary hover:underline">
-          Go to Admin Panel
-        </Link>
-      </p>
     </div>
   );
 }
@@ -78,7 +72,7 @@ function LoginForm() {
       const { tokens, user } = await login(values.identifier, values.password);
       setSession(user, tokens.accessToken, tokens.refreshToken);
       toast.success(`Welcome back, ${user.name}`);
-      nav({ to: "/" });
+      nav({ to: isAdminRole(user.role) ? "/admin" : "/" });
     } catch (error) {
       toast.error(getApiErrorMessage(error, "Invalid email/mobile or password"));
     }

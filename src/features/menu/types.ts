@@ -5,6 +5,7 @@ export interface ApiCategory {
   imageUrl?: string;
   icon?: string;
   displayOrder: number;
+  isActive: boolean;
 }
 
 export interface ApiCustomizationOption {
@@ -21,7 +22,6 @@ export interface ApiCustomizationGroup {
 
 export interface ApiMenuItem {
   _id: string;
-  restaurantId: string;
   categoryId: string;
   name: string;
   shortDescription?: string;
@@ -35,12 +35,4 @@ export interface ApiMenuItem {
   customizations: ApiCustomizationGroup[];
   avgRating: number;
   ratingCount: number;
-}
-
-export interface ApiRestaurant {
-  _id: string;
-  name: string;
-  stationCodes: string[];
-  minOrderValuePaise: number;
-  codEligible: boolean;
 }

@@ -1,13 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type UserRole =
-  | "PASSENGER"
-  | "RESTAURANT_MANAGER"
-  | "RESTAURANT_STAFF"
-  | "SUPPORT_EXEC"
-  | "ADMIN"
-  | "SUPER_ADMIN";
+export type UserRole = "PASSENGER" | "SUPPORT_EXEC" | "ADMIN" | "SUPER_ADMIN";
 
 export interface AuthUser {
   id: string;
@@ -38,7 +32,7 @@ export const useAuthStore = create<AuthState>()(
       setUser: (user) => set({ user }),
       logout: () => set({ user: null, accessToken: null, refreshToken: null }),
     }),
-    { name: "railbite_auth_v1" },
+    { name: "srfood_auth_v1" },
   ),
 );
 

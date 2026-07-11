@@ -1,5 +1,7 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,9 +46,12 @@ import {
   UtensilsCrossed,
   Palette,
   Star,
+  Layers,
+  MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
-import { logoutRequest } from "@/features/auth/services/authApi";
+import { login, logoutRequest } from "@/features/auth/services/authApi";
+import { loginSchema, type LoginFormValues } from "@/features/auth/schemas/authSchemas";
 import { isAdminRole, useAuthStore } from "@/store/authStore";
 import { getApiErrorMessage } from "@/lib/axios";
 import {
@@ -58,16 +63,27 @@ import {
 } from "@/features/admin/services/adminApi";
 import { nextValidStatuses, statusLabel } from "@/features/admin/orderStatusTransitions";
 import {
-  getPrimaryRestaurant,
-  getRestaurantMenu,
+  getMenu,
   createMenuItem,
   updateMenuItem,
   deleteMenuItem,
+  createCategory,
+  updateCategory,
+  deleteCategory,
   type MenuItemPayload,
+  type CategoryPayload,
 } from "@/features/menu/services/menuApi";
 import { paiseToRupees } from "@/features/menu/mappers";
 import type { ApiCategory, ApiMenuItem } from "@/features/menu/types";
 import { listAdminRatings, moderateRating } from "@/features/ratings/services/ratingsApi";
+import {
+  getStations,
+  createStation,
+  updateStation,
+  deleteStation,
+  type StationPayload,
+} from "@/features/stations/services/stationsApi";
+import type { ApiStation } from "@/features/stations/types";
 import {
   getHomepage,
   updateHomepage,
@@ -108,15 +124,13 @@ function AdminPage() {
           <div className="w-14 h-14 rounded-2xl bg-primary text-primary-foreground grid place-items-center mx-auto">
             <ShieldCheck className="w-7 h-7" />
           </div>
-          <h1 className="text-xl font-bold">Admin Login Required</h1>
+          <h1 className="text-xl font-bold">Admin Login</h1>
           <p className="text-sm text-muted-foreground">
             {currentUser
               ? "Your account does not have admin access."
-              : "Please log in with an admin account to continue."}
+              : "Sign in with your admin account to continue."}
           </p>
-          <Button asChild className="w-full">
-            <Link to="/auth">Go to Login</Link>
-          </Button>
+          <AdminLoginForm />
           <Link
             to="/"
             className="block text-center text-xs text-muted-foreground hover:text-primary"
@@ -156,7 +170,7 @@ function AdminPage() {
       </header>
       <main className="max-w-7xl mx-auto px-4 md:px-6 py-6">
         <Tabs defaultValue="dashboard">
-          <TabsList className="grid grid-cols-3 md:grid-cols-6 mb-6 h-auto">
+          <TabsList className="grid grid-cols-4 md:grid-cols-8 mb-6 h-auto">
             <TabsTrigger value="dashboard" className="gap-1.5">
               <Home className="w-4 h-4" />
               Dashboard
@@ -164,6 +178,14 @@ function AdminPage() {
             <TabsTrigger value="menu" className="gap-1.5">
               <UtensilsCrossed className="w-4 h-4" />
               Menu
+            </TabsTrigger>
+            <TabsTrigger value="categories" className="gap-1.5">
+              <Layers className="w-4 h-4" />
+              Categories
+            </TabsTrigger>
+            <TabsTrigger value="stations" className="gap-1.5">
+              <MapPin className="w-4 h-4" />
+              Stations
             </TabsTrigger>
             <TabsTrigger value="orders" className="gap-1.5">
               <Package className="w-4 h-4" />
@@ -188,6 +210,12 @@ function AdminPage() {
           <TabsContent value="menu">
             <MenuAdmin />
           </TabsContent>
+          <TabsContent value="categories">
+            <CategoriesAdmin />
+          </TabsContent>
+          <TabsContent value="stations">
+            <StationsAdmin />
+          </TabsContent>
           <TabsContent value="orders">
             <OrdersAdmin />
           </TabsContent>
@@ -203,6 +231,49 @@ function AdminPage() {
         </Tabs>
       </main>
     </div>
+  );
+}
+
+function AdminLoginForm() {
+  const setSession = useAuthStore((s) => s.setSession);
+  const {
+    register: field,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginFormValues>({ resolver: zodResolver(loginSchema) });
+
+  const onSubmit = async (values: LoginFormValues) => {
+    try {
+      const { tokens, user } = await login(values.identifier, values.password);
+      if (!isAdminRole(user.role)) {
+        toast.error("This account does not have admin access");
+        return;
+      }
+      setSession(user, tokens.accessToken, tokens.refreshToken);
+      toast.success(`Welcome back, ${user.name}`);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Invalid email/mobile or password"));
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-3 text-left">
+      <div className="space-y-1.5">
+        <Label>Email or Mobile</Label>
+        <Input {...field("identifier")} />
+        {errors.identifier && (
+          <p className="text-xs text-destructive">{errors.identifier.message}</p>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        <Label>Password</Label>
+        <Input type="password" {...field("password")} />
+        {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+      </div>
+      <Button type="submit" className="w-full" disabled={isSubmitting}>
+        {isSubmitting ? "Logging in…" : "Login to Admin Panel"}
+      </Button>
+    </form>
   );
 }
 
@@ -271,19 +342,8 @@ function MenuAdmin() {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["admin-menu"],
-    queryFn: async () => {
-      const restaurant = await getPrimaryRestaurant();
-      if (!restaurant)
-        return {
-          restaurantId: null as string | null,
-          categories: [] as ApiCategory[],
-          items: [] as ApiMenuItem[],
-        };
-      const menu = await getRestaurantMenu(restaurant._id);
-      return { restaurantId: restaurant._id, categories: menu.categories, items: menu.items };
-    },
+    queryFn: getMenu,
   });
-  const restaurantId = data?.restaurantId ?? null;
   const categories = data?.categories ?? [];
   const items = data?.items ?? [];
   const categoryName = (id: string) => categories.find((c) => c._id === id)?.name ?? "—";
@@ -314,12 +374,6 @@ function MenuAdmin() {
   });
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>;
-  if (!restaurantId)
-    return (
-      <p className="text-sm text-muted-foreground py-10 text-center">
-        No restaurant found — seed one first.
-      </p>
-    );
 
   return (
     <div className="space-y-4">
@@ -385,9 +439,7 @@ function MenuAdmin() {
         onOpenChange={setOpen}
         item={editing}
         categories={categories}
-        onSave={(payload) =>
-          saveMutation.mutate(restaurantId ? { ...payload, restaurantId } : payload)
-        }
+        onSave={(payload) => saveMutation.mutate(payload)}
       />
       <ConfirmDialog
         open={!!confirmDel}
@@ -591,6 +643,474 @@ function MenuPanel({
                 isVeg: f.isVeg,
                 categoryId: f.categoryId,
               });
+            }}
+          >
+            Save
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function CategoriesAdmin() {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-categories"],
+    queryFn: () => getMenu().then((m) => m.categories),
+  });
+  const categories = data ?? [];
+
+  const [editing, setEditing] = useState<ApiCategory | null>(null);
+  const [open, setOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState<ApiCategory | null>(null);
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-categories"] });
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: CategoryPayload) =>
+      editing ? updateCategory(editing._id, payload) : createCategory(payload),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Saved");
+      setOpen(false);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteCategory(id),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Deleted");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold text-lg">Categories ({categories.length})</h2>
+        <Button
+          onClick={() => {
+            setEditing(null);
+            setOpen(true);
+          }}
+        >
+          <Plus className="w-4 h-4 mr-1" />
+          Add Category
+        </Button>
+      </div>
+      <div className="bg-card border rounded-2xl overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Category</TableHead>
+              <TableHead>Slug</TableHead>
+              <TableHead>Order</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {categories.map((c) => (
+              <TableRow key={c._id}>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    {c.imageUrl && (
+                      <img src={c.imageUrl} alt="" className="w-10 h-10 rounded object-cover" />
+                    )}
+                    <div className="font-medium">
+                      {c.icon} {c.name}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">{c.slug}</TableCell>
+                <TableCell>{c.displayOrder}</TableCell>
+                <TableCell>
+                  <span
+                    className={`text-xs font-semibold ${c.isActive ? "text-green-600" : "text-muted-foreground"}`}
+                  >
+                    {c.isActive ? "Active" : "Inactive"}
+                  </span>
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex gap-1 justify-end">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => {
+                        setEditing(c);
+                        setOpen(true);
+                      }}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" onClick={() => setConfirmDel(c)}>
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <CategoryPanel
+        open={open}
+        onOpenChange={setOpen}
+        category={editing}
+        onSave={(payload) => saveMutation.mutate(payload)}
+      />
+      <ConfirmDialog
+        open={!!confirmDel}
+        title="Delete category?"
+        description={
+          confirmDel
+            ? `"${confirmDel.name}" will be permanently removed. Menu items in this category will remain but lose their category label.`
+            : ""
+        }
+        confirmLabel="Delete"
+        destructive
+        onCancel={() => setConfirmDel(null)}
+        onConfirm={() => {
+          if (confirmDel) deleteMutation.mutate(confirmDel._id);
+          setConfirmDel(null);
+        }}
+      />
+    </div>
+  );
+}
+
+interface CategoryDraft {
+  name: string;
+  slug: string;
+  icon: string;
+  imageUrl: string;
+  displayOrder: number;
+}
+
+function CategoryPanel({
+  open,
+  onOpenChange,
+  category,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  category: ApiCategory | null;
+  onSave: (payload: CategoryPayload) => void;
+}) {
+  const empty: CategoryDraft = { name: "", slug: "", icon: "", imageUrl: "", displayOrder: 0 };
+  const toDraft = (c: ApiCategory | null): CategoryDraft =>
+    c
+      ? {
+          name: c.name,
+          slug: c.slug,
+          icon: c.icon ?? "",
+          imageUrl: c.imageUrl ?? "",
+          displayOrder: c.displayOrder,
+        }
+      : empty;
+  const [f, setF] = useState<CategoryDraft>(toDraft(category));
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(o) => {
+        onOpenChange(o);
+        if (o) setF(toDraft(category));
+      }}
+    >
+      <SheetContent side="right" className="w-[380px] sm:max-w-[380px] flex flex-col p-0">
+        <SheetHeader className="p-5 border-b">
+          <SheetTitle>{category ? "Edit Category" : "Add Category"}</SheetTitle>
+        </SheetHeader>
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          <div className="space-y-1.5">
+            <Label>Name</Label>
+            <Input
+              value={f.name}
+              onChange={(e) => {
+                const name = e.target.value;
+                setF((p) => ({
+                  ...p,
+                  name,
+                  slug: category
+                    ? p.slug
+                    : name
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]+/g, "-")
+                        .replace(/^-|-$/g, ""),
+                }));
+              }}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Slug</Label>
+            <Input value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Icon (emoji)</Label>
+              <Input value={f.icon} onChange={(e) => setF({ ...f, icon: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Display Order</Label>
+              <Input
+                type="number"
+                value={f.displayOrder}
+                onChange={(e) => setF({ ...f, displayOrder: Number(e.target.value) })}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Image URL</Label>
+            <Input
+              value={f.imageUrl}
+              onChange={(e) => setF({ ...f, imageUrl: e.target.value })}
+              placeholder="https://..."
+            />
+          </div>
+          {f.imageUrl && (
+            <img src={f.imageUrl} alt="" className="w-full h-40 object-cover rounded-lg border" />
+          )}
+        </div>
+        <SheetFooter className="p-5 border-t flex-row gap-2 sm:justify-end">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            className="flex-1 sm:flex-none"
+          >
+            Cancel
+          </Button>
+          <Button
+            className="flex-1 sm:flex-none"
+            onClick={() => {
+              if (!f.name || !f.slug) {
+                toast.error("Name and slug are required");
+                return;
+              }
+              onSave({
+                name: f.name,
+                slug: f.slug,
+                icon: f.icon || undefined,
+                imageUrl: f.imageUrl || undefined,
+                displayOrder: f.displayOrder,
+              });
+            }}
+          >
+            Save
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function StationsAdmin() {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-stations"],
+    queryFn: () => getStations(),
+  });
+  const stations = data ?? [];
+
+  const [editing, setEditing] = useState<ApiStation | null>(null);
+  const [open, setOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState<ApiStation | null>(null);
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-stations"] });
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: StationPayload) =>
+      editing ? updateStation(editing._id, payload) : createStation(payload),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Saved");
+      setOpen(false);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteStation(id),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Deleted");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-10 text-center">Loading…</p>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold text-lg">Stations ({stations.length})</h2>
+        <Button
+          onClick={() => {
+            setEditing(null);
+            setOpen(true);
+          }}
+        >
+          <Plus className="w-4 h-4 mr-1" />
+          Add Station
+        </Button>
+      </div>
+      <div className="bg-card border rounded-2xl overflow-hidden">
+        {!stations.length ? (
+          <p className="p-6 text-sm text-muted-foreground text-center">
+            No stations yet. Add the stations passengers can select at checkout.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Station</TableHead>
+                <TableHead>Code</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {stations.map((s) => (
+                <TableRow key={s._id}>
+                  <TableCell className="font-medium">{s.name}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{s.code ?? "—"}</TableCell>
+                  <TableCell>
+                    <span
+                      className={`text-xs font-semibold ${s.isActive ? "text-green-600" : "text-muted-foreground"}`}
+                    >
+                      {s.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex gap-1 justify-end">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => {
+                          setEditing(s);
+                          setOpen(true);
+                        }}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button size="icon" variant="ghost" onClick={() => setConfirmDel(s)}>
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+      <StationPanel
+        open={open}
+        onOpenChange={setOpen}
+        station={editing}
+        onSave={(payload) => saveMutation.mutate(payload)}
+      />
+      <ConfirmDialog
+        open={!!confirmDel}
+        title="Delete station?"
+        description={
+          confirmDel ? `"${confirmDel.name}" will no longer be selectable at checkout.` : ""
+        }
+        confirmLabel="Delete"
+        destructive
+        onCancel={() => setConfirmDel(null)}
+        onConfirm={() => {
+          if (confirmDel) deleteMutation.mutate(confirmDel._id);
+          setConfirmDel(null);
+        }}
+      />
+    </div>
+  );
+}
+
+interface StationDraft {
+  name: string;
+  code: string;
+  isActive: boolean;
+}
+
+function StationPanel({
+  open,
+  onOpenChange,
+  station,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  station: ApiStation | null;
+  onSave: (payload: StationPayload) => void;
+}) {
+  const empty: StationDraft = { name: "", code: "", isActive: true };
+  const toDraft = (s: ApiStation | null): StationDraft =>
+    s ? { name: s.name, code: s.code ?? "", isActive: s.isActive } : empty;
+  const [f, setF] = useState<StationDraft>(toDraft(station));
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(o) => {
+        onOpenChange(o);
+        if (o) setF(toDraft(station));
+      }}
+    >
+      <SheetContent side="right" className="w-[380px] sm:max-w-[380px] flex flex-col p-0">
+        <SheetHeader className="p-5 border-b">
+          <SheetTitle>{station ? "Edit Station" : "Add Station"}</SheetTitle>
+        </SheetHeader>
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          <div className="space-y-1.5">
+            <Label>Station Name</Label>
+            <Input
+              value={f.name}
+              onChange={(e) => setF({ ...f, name: e.target.value })}
+              placeholder="e.g. Kanpur Central"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Station Code (optional)</Label>
+            <Input
+              value={f.code}
+              onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })}
+              placeholder="e.g. CNB"
+            />
+          </div>
+          {station && (
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="station-active"
+                checked={f.isActive}
+                onChange={(e) => setF({ ...f, isActive: e.target.checked })}
+              />
+              <Label htmlFor="station-active">Active (visible at checkout)</Label>
+            </div>
+          )}
+        </div>
+        <SheetFooter className="p-5 border-t flex-row gap-2 sm:justify-end">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            className="flex-1 sm:flex-none"
+          >
+            Cancel
+          </Button>
+          <Button
+            className="flex-1 sm:flex-none"
+            onClick={() => {
+              if (!f.name) {
+                toast.error("Station name is required");
+                return;
+              }
+              onSave({ name: f.name, code: f.code || undefined, isActive: f.isActive });
             }}
           >
             Save

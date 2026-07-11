@@ -1,15 +1,8 @@
 import { api } from "@/lib/axios";
-import type { ApiCategory, ApiMenuItem, ApiRestaurant } from "../types";
+import type { ApiCategory, ApiMenuItem } from "../types";
 
-export async function getPrimaryRestaurant(): Promise<ApiRestaurant | null> {
-  const { data } = await api.get("/restaurants", { params: { limit: 1 } });
-  return data.data[0] ?? null;
-}
-
-export async function getRestaurantMenu(
-  restaurantId: string,
-): Promise<{ categories: ApiCategory[]; items: ApiMenuItem[] }> {
-  const { data } = await api.get(`/restaurants/${restaurantId}/menu`);
+export async function getMenu(): Promise<{ categories: ApiCategory[]; items: ApiMenuItem[] }> {
+  const { data } = await api.get("/menu");
   return data.data;
 }
 
@@ -29,7 +22,6 @@ export async function getPopularItems(limit = 5): Promise<ApiMenuItem[]> {
 }
 
 export interface MenuItemPayload {
-  restaurantId?: string;
   categoryId: string;
   name: string;
   shortDescription?: string;
@@ -53,4 +45,31 @@ export async function updateMenuItem(
 
 export async function deleteMenuItem(id: string): Promise<void> {
   await api.delete(`/menu/items/${id}`);
+}
+
+export interface CategoryPayload {
+  name: string;
+  slug: string;
+  description?: string;
+  imageUrl?: string;
+  icon?: string;
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+export async function createCategory(payload: CategoryPayload): Promise<ApiCategory> {
+  const { data } = await api.post("/menu/categories", payload);
+  return data.data;
+}
+
+export async function updateCategory(
+  id: string,
+  payload: Partial<CategoryPayload>,
+): Promise<ApiCategory> {
+  const { data } = await api.patch(`/menu/categories/${id}`, payload);
+  return data.data;
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  await api.delete(`/menu/categories/${id}`);
 }
