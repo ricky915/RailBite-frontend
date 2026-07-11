@@ -30,6 +30,7 @@ export interface AdminOrder {
 export async function listAdminOrders(params?: {
   page?: number;
   limit?: number;
+  passengerId?: string;
 }): Promise<{ items: AdminOrder[] }> {
   const { data } = await api.get("/admin/orders", { params });
   return { items: data.data };

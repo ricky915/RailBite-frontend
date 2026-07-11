@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,7 +40,6 @@ import {
   Plus,
   Pencil,
   Trash2,
-  ShieldCheck,
   Home,
   Users,
   Package,
@@ -48,8 +48,11 @@ import {
   Star,
   Layers,
   MapPin,
+  Bell,
+  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Logo } from "@/components/brand/Logo";
 import { login, logoutRequest } from "@/features/auth/services/authApi";
 import { loginSchema, type LoginFormValues } from "@/features/auth/schemas/authSchemas";
 import { isAdminRole, useAuthStore } from "@/store/authStore";
@@ -60,8 +63,14 @@ import {
   updateOrderStatus,
   listAdminUsers,
   setUserBlocked,
+  type AdminOrder,
+  type AdminUser,
 } from "@/features/admin/services/adminApi";
 import { nextValidStatuses, statusLabel } from "@/features/admin/orderStatusTransitions";
+import {
+  listNotifications,
+  markNotificationRead,
+} from "@/features/notifications/services/notificationsApi";
 import {
   getMenu,
   createMenuItem,
@@ -121,8 +130,8 @@ function AdminPage() {
     return (
       <div className="min-h-screen grid place-items-center bg-muted/30 px-4">
         <div className="bg-card border rounded-2xl p-8 w-full max-w-sm space-y-4 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-primary text-primary-foreground grid place-items-center mx-auto">
-            <ShieldCheck className="w-7 h-7" />
+          <div className="flex justify-center">
+            <Logo />
           </div>
           <h1 className="text-xl font-bold">Admin Login</h1>
           <p className="text-sm text-muted-foreground">
@@ -146,15 +155,14 @@ function AdminPage() {
       <header className="bg-background border-b sticky top-0 z-40">
         <div className="px-4 md:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground grid place-items-center">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="font-bold">SRFOOD Admin</div>
+            <Logo />
+            <div className="hidden sm:block pl-3 border-l">
+              <div className="font-bold text-sm">Admin Panel</div>
               <div className="text-xs text-muted-foreground">Manage everything</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <NotificationsBell />
             <Button asChild variant="outline" size="sm">
               <Link to="/">
                 <Home className="w-4 h-4 mr-1" />
@@ -274,6 +282,71 @@ function AdminLoginForm() {
         {isSubmitting ? "Logging in…" : "Login to Admin Panel"}
       </Button>
     </form>
+  );
+}
+
+function NotificationsBell() {
+  const queryClient = useQueryClient();
+  const previousUnread = useRef<number | null>(null);
+  const { data } = useQuery({
+    queryKey: ["admin-notifications"],
+    queryFn: () => listNotifications({ limit: 20 }),
+    refetchInterval: 15000,
+  });
+  const notifications = data?.items ?? [];
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  useEffect(() => {
+    if (previousUnread.current !== null && unreadCount > previousUnread.current) {
+      toast.info("New order received");
+    }
+    previousUnread.current = unreadCount;
+  }, [unreadCount]);
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => markNotificationRead(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-notifications"] }),
+  });
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="icon" className="relative">
+          <Bell className="w-4 h-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-destructive text-[10px] leading-4 text-white text-center">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0">
+        <div className="p-3 border-b font-semibold text-sm">Notifications</div>
+        <div className="max-h-80 overflow-y-auto">
+          {!notifications.length ? (
+            <p className="p-4 text-sm text-muted-foreground text-center">No notifications yet.</p>
+          ) : (
+            notifications.map((n) => (
+              <button
+                key={n._id}
+                type="button"
+                onClick={() => !n.isRead && markReadMutation.mutate(n._id)}
+                className={`w-full text-left p-3 border-b last:border-0 hover:bg-accent transition ${n.isRead ? "" : "bg-primary/5"}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{n.title}</span>
+                  {!n.isRead && <span className="w-2 h-2 rounded-full bg-primary shrink-0" />}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{n.body}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {new Date(n.createdAt).toLocaleString()}
+                </p>
+              </button>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -549,14 +622,13 @@ function MenuPanel({
       : empty;
   const [f, setF] = useState<MenuDraft>(toDraft(item));
 
+  useEffect(() => {
+    if (open) setF(toDraft(item));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, item]);
+
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(o) => {
-        onOpenChange(o);
-        if (o) setF(toDraft(item));
-      }}
-    >
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-[380px] sm:max-w-[380px] flex flex-col p-0">
         <SheetHeader className="p-5 border-b">
           <SheetTitle>{item ? "Edit Item" : "Add Menu Item"}</SheetTitle>
@@ -815,14 +887,13 @@ function CategoryPanel({
       : empty;
   const [f, setF] = useState<CategoryDraft>(toDraft(category));
 
+  useEffect(() => {
+    if (open) setF(toDraft(category));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, category]);
+
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(o) => {
-        onOpenChange(o);
-        if (o) setF(toDraft(category));
-      }}
-    >
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-[380px] sm:max-w-[380px] flex flex-col p-0">
         <SheetHeader className="p-5 border-b">
           <SheetTitle>{category ? "Edit Category" : "Add Category"}</SheetTitle>
@@ -1054,14 +1125,13 @@ function StationPanel({
     s ? { name: s.name, code: s.code ?? "", isActive: s.isActive } : empty;
   const [f, setF] = useState<StationDraft>(toDraft(station));
 
+  useEffect(() => {
+    if (open) setF(toDraft(station));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, station]);
+
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(o) => {
-        onOpenChange(o);
-        if (o) setF(toDraft(station));
-      }}
-    >
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-[380px] sm:max-w-[380px] flex flex-col p-0">
         <SheetHeader className="p-5 border-b">
           <SheetTitle>{station ? "Edit Station" : "Add Station"}</SheetTitle>
@@ -1237,10 +1307,16 @@ function UsersAdmin() {
   });
   const users = data?.items ?? [];
 
+  const [viewing, setViewing] = useState<AdminUser | null>(null);
+  const [confirmBlock, setConfirmBlock] = useState<AdminUser | null>(null);
+
   const blockMutation = useMutation({
     mutationFn: ({ id, isBlocked }: { id: string; isBlocked: boolean }) =>
       setUserBlocked(id, isBlocked),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success("User updated");
+    },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
@@ -1263,7 +1339,7 @@ function UsersAdmin() {
                 <TableHead>Mobile</TableHead>
                 <TableHead>Joined</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1283,13 +1359,14 @@ function UsersAdmin() {
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => blockMutation.mutate({ id: u._id, isBlocked: !u.isBlocked })}
-                    >
-                      {u.isBlocked ? "Unblock" : "Block"}
-                    </Button>
+                    <div className="flex gap-1 justify-end">
+                      <Button size="icon" variant="ghost" onClick={() => setViewing(u)}>
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setConfirmBlock(u)}>
+                        {u.isBlocked ? "Unblock" : "Block"}
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -1297,7 +1374,105 @@ function UsersAdmin() {
           </Table>
         )}
       </div>
+      <UserDetailPanel user={viewing} open={!!viewing} onOpenChange={(o) => !o && setViewing(null)} />
+      <ConfirmDialog
+        open={!!confirmBlock}
+        title={confirmBlock?.isBlocked ? "Unblock this user?" : "Block this user?"}
+        description={
+          confirmBlock
+            ? confirmBlock.isBlocked
+              ? `"${confirmBlock.name}" will regain access to their account and be able to order again.`
+              : `"${confirmBlock.name}" will be blocked from logging in and placing new orders.`
+            : ""
+        }
+        confirmLabel={confirmBlock?.isBlocked ? "Unblock" : "Block"}
+        destructive={!confirmBlock?.isBlocked}
+        onCancel={() => setConfirmBlock(null)}
+        onConfirm={() => {
+          if (confirmBlock) {
+            blockMutation.mutate({ id: confirmBlock._id, isBlocked: !confirmBlock.isBlocked });
+          }
+          setConfirmBlock(null);
+        }}
+      />
     </div>
+  );
+}
+
+function UserDetailPanel({
+  user,
+  open,
+  onOpenChange,
+}: {
+  user: AdminUser | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-user-orders", user?._id],
+    queryFn: () => listAdminOrders({ passengerId: user!._id, limit: 50 }),
+    enabled: open && !!user,
+  });
+  const orders: AdminOrder[] = data?.items ?? [];
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-[420px] sm:max-w-[420px] flex flex-col p-0">
+        <SheetHeader className="p-5 border-b">
+          <SheetTitle>User Details</SheetTitle>
+        </SheetHeader>
+        {user && (
+          <div className="flex-1 overflow-y-auto p-5 space-y-5">
+            <div className="space-y-1">
+              <div className="font-bold text-lg">{user.name}</div>
+              <div className="text-sm text-muted-foreground">{user.email}</div>
+              <div className="text-sm text-muted-foreground">{user.mobile}</div>
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-xs text-muted-foreground">
+                  Joined {new Date(user.createdAt).toLocaleDateString()}
+                </span>
+                <span
+                  className={`text-xs font-semibold ${user.isBlocked ? "text-destructive" : "text-green-600"}`}
+                >
+                  {user.isBlocked ? "Blocked" : "Active"}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-semibold text-sm">Orders ({orders.length})</h3>
+              {isLoading ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">Loading…</p>
+              ) : !orders.length ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">
+                  This user hasn't placed any orders yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {orders.map((o) => (
+                    <div key={o._id} className="border rounded-xl p-3 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs">{o.orderId}</span>
+                        <span className="font-bold text-sm">₹{paiseToRupees(o.grandTotal)}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {o.items.map((i) => `${i.name}×${i.quantity}`).join(", ")}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold">{statusLabel(o.status)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(o.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -1430,6 +1605,34 @@ function ContentAdmin() {
   const [privacyDraft, setPrivacyDraft] = useState<LegalContent | null>(null);
   const [termsDraft, setTermsDraft] = useState<LegalContent | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<SettingsContent | null>(null);
+  const [confirmDeleteHero, setConfirmDeleteHero] = useState<number | null>(null);
+  const [confirmDeleteFaq, setConfirmDeleteFaq] = useState<number | null>(null);
+
+  const deleteHeroMutation = useMutation({
+    mutationFn: (index: number) => {
+      if (!heroDraft) throw new Error("Content not loaded yet");
+      return updateHomepage({ ...heroDraft, hero: heroDraft.hero.filter((_, x) => x !== index) });
+    },
+    onSuccess: (updated) => {
+      setHeroDraft(updated);
+      queryClient.invalidateQueries({ queryKey: ["cms-homepage"] });
+      toast.success("Hero slide removed");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const deleteFaqMutation = useMutation({
+    mutationFn: (index: number) => {
+      if (!faqDraft) throw new Error("Content not loaded yet");
+      return updateFaqs({ faqs: faqDraft.faqs.filter((_, x) => x !== index) });
+    },
+    onSuccess: (updated) => {
+      setFaqDraft(updated);
+      queryClient.invalidateQueries({ queryKey: ["cms-faqs"] });
+      toast.success("FAQ removed");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
 
   useEffect(() => {
     if (homepage && !heroDraft) setHeroDraft(homepage);
@@ -1516,11 +1719,7 @@ function ContentAdmin() {
                   setHeroDraft({ ...c, hero: h });
                 }}
               />
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => setHeroDraft({ ...c, hero: c.hero.filter((_, x) => x !== i) })}
-              >
+              <Button size="icon" variant="ghost" onClick={() => setConfirmDeleteHero(i)}>
                 <Trash2 className="w-4 h-4 text-destructive" />
               </Button>
             </div>
@@ -1606,11 +1805,7 @@ function ContentAdmin() {
                 setFaqDraft({ faqs: f });
               }}
             />
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setFaqDraft({ faqs: faqDraft.faqs.filter((_, x) => x !== i) })}
-            >
+            <Button size="icon" variant="ghost" onClick={() => setConfirmDeleteFaq(i)}>
               <Trash2 className="w-4 h-4 text-destructive" />
             </Button>
           </div>
@@ -1706,6 +1901,30 @@ function ContentAdmin() {
           Save All Changes
         </Button>
       </div>
+      <ConfirmDialog
+        open={confirmDeleteHero !== null}
+        title="Remove this hero slide?"
+        description="This will permanently remove the slide from the homepage right away."
+        confirmLabel="Remove"
+        destructive
+        onCancel={() => setConfirmDeleteHero(null)}
+        onConfirm={() => {
+          if (confirmDeleteHero !== null) deleteHeroMutation.mutate(confirmDeleteHero);
+          setConfirmDeleteHero(null);
+        }}
+      />
+      <ConfirmDialog
+        open={confirmDeleteFaq !== null}
+        title="Remove this FAQ?"
+        description="This will permanently remove the FAQ from the site right away."
+        confirmLabel="Remove"
+        destructive
+        onCancel={() => setConfirmDeleteFaq(null)}
+        onConfirm={() => {
+          if (confirmDeleteFaq !== null) deleteFaqMutation.mutate(confirmDeleteFaq);
+          setConfirmDeleteFaq(null);
+        }}
+      />
     </div>
   );
 }
