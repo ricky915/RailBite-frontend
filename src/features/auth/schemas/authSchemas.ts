@@ -23,27 +23,3 @@ export const signupSchema = z.object({
   password: passwordRulesSchema,
 });
 export type SignupFormValues = z.infer<typeof signupSchema>;
-
-export const otpSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .length(6, "Enter the 6-digit code")
-    .regex(/^\d{6}$/, "Digits only"),
-});
-export type OtpFormValues = z.infer<typeof otpSchema>;
-
-export const forgotPasswordSchema = z.object({
-  mobile: mobileSchema,
-});
-export type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
-
-export const resetPasswordSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .length(6, "Enter the 6-digit code")
-    .regex(/^\d{6}$/, "Digits only"),
-  newPassword: passwordRulesSchema,
-});
-export type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;

@@ -47,6 +47,7 @@ export function Header() {
   };
   const [q, setQ] = useState("");
   const [trainDialogOpen, setTrainDialogOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     nav({ to: "/menu", search: { q } as never });
@@ -54,7 +55,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 bg-background/85 backdrop-blur-md border-b">
       <div className="px-4 md:px-6 h-[72px] flex items-center gap-3 md:gap-4">
-        <Sheet>
+        <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" className="lg:hidden">
               <Menu className="w-5 h-5" />
@@ -65,7 +66,7 @@ export function Header() {
               <Logo />
             </div>
             <div className="-mt-[72px] pt-[72px]">
-              <AppSidebar mobile />
+              <AppSidebar mobile onNavigate={() => setSidebarOpen(false)} />
             </div>
           </SheetContent>
         </Sheet>
