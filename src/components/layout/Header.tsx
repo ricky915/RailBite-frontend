@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { AppSidebar } from "./AppSidebar";
+import { DeliveryTrainDialog } from "./DeliveryTrainDialog";
 import { logoutRequest } from "@/features/auth/services/authApi";
 import { useAuthStore } from "@/store/authStore";
 import { useCartStore, selectCartCount } from "@/store/cartStore";
+import { useDeliveryStore } from "@/store/deliveryStore";
 import { getSettings } from "@/features/cms/services/cmsApi";
 
 const WHATSAPP_MESSAGE = "Hi, I need help with my SR Food order.";
@@ -36,12 +38,15 @@ export function Header() {
   const currentUser = useAuthStore((s) => s.user);
   const refreshToken = useAuthStore((s) => s.refreshToken);
   const storeLogout = useAuthStore((s) => s.logout);
+  const trainNumber = useDeliveryStore((s) => s.trainNumber);
+  const trainName = useDeliveryStore((s) => s.trainName);
   const nav = useNavigate();
   const logout = () => {
     if (refreshToken) void logoutRequest(refreshToken).catch(() => undefined);
     storeLogout();
   };
   const [q, setQ] = useState("");
+  const [trainDialogOpen, setTrainDialogOpen] = useState(false);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     nav({ to: "/menu", search: { q } as never });
@@ -60,7 +65,7 @@ export function Header() {
               <Logo />
             </div>
             <div className="-mt-[72px] pt-[72px]">
-              <AppSidebar />
+              <AppSidebar mobile />
             </div>
           </SheetContent>
         </Sheet>
@@ -69,13 +74,20 @@ export function Header() {
           <Logo />
         </Link>
 
-        <button className="hidden md:flex items-center gap-2 px-3 py-2 rounded-lg border hover:border-primary/40 hover:bg-accent transition text-left">
+        <button
+          type="button"
+          onClick={() => setTrainDialogOpen(true)}
+          className="hidden md:flex items-center gap-2 px-3 py-2 rounded-lg border hover:border-primary/40 hover:bg-accent transition text-left"
+        >
           <MapPin className="w-4 h-4 text-primary" />
           <div className="text-xs leading-tight">
             <div className="text-muted-foreground">Delivery in</div>
-            <div className="font-semibold text-foreground">123456 – Train/Station</div>
+            <div className="font-semibold text-foreground">
+              {trainNumber ? `#${trainNumber}${trainName ? ` – ${trainName}` : ""}` : "Set your train"}
+            </div>
           </div>
         </button>
+        <DeliveryTrainDialog open={trainDialogOpen} onOpenChange={setTrainDialogOpen} />
 
         <form onSubmit={submit} className="flex-1 max-w-xl relative hidden sm:block">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -128,6 +140,16 @@ export function Header() {
           </Link>
         </Button>
       </div>
+
+      <form onSubmit={submit} className="sm:hidden px-4 pb-3 relative">
+        <Search className="absolute left-7 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search for food or cuisine…"
+          className="pl-10 h-11 rounded-full bg-muted border-transparent focus-visible:bg-background"
+        />
+      </form>
     </header>
   );
 }

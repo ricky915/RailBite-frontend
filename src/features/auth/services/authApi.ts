@@ -8,7 +8,6 @@ export interface AuthTokens {
 
 export async function register(input: {
   name: string;
-  email: string;
   mobile: string;
   password: string;
 }): Promise<{ userId: string }> {
@@ -17,10 +16,10 @@ export async function register(input: {
 }
 
 export async function login(
-  identifier: string,
+  mobile: string,
   password: string,
 ): Promise<{ tokens: AuthTokens; user: AuthUser }> {
-  const { data } = await api.post("/auth/login", { identifier, password });
+  const { data } = await api.post("/auth/login", { identifier: mobile, password });
   return data.data;
 }
 

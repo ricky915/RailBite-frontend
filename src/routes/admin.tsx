@@ -52,9 +52,9 @@ import {
   Eye,
 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { Logo } from "@/components/brand/Logo";
 import { login, logoutRequest } from "@/features/auth/services/authApi";
-import { loginSchema, type LoginFormValues } from "@/features/auth/schemas/authSchemas";
 import { isAdminRole, useAuthStore } from "@/store/authStore";
 import { getApiErrorMessage } from "@/lib/axios";
 import {
@@ -242,15 +242,23 @@ function AdminPage() {
   );
 }
 
+// Admin accounts are provisioned via role assignment (not the public mobile-only registration
+// flow), so unlike the customer-facing login this keeps accepting either email or mobile.
+const adminLoginSchema = z.object({
+  identifier: z.string().trim().min(3, "Enter your email or mobile number"),
+  password: z.string().min(1, "Password is required"),
+});
+type AdminLoginFormValues = z.infer<typeof adminLoginSchema>;
+
 function AdminLoginForm() {
   const setSession = useAuthStore((s) => s.setSession);
   const {
     register: field,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<LoginFormValues>({ resolver: zodResolver(loginSchema) });
+  } = useForm<AdminLoginFormValues>({ resolver: zodResolver(adminLoginSchema) });
 
-  const onSubmit = async (values: LoginFormValues) => {
+  const onSubmit = async (values: AdminLoginFormValues) => {
     try {
       const { tokens, user } = await login(values.identifier, values.password);
       if (!isAdminRole(user.role)) {
