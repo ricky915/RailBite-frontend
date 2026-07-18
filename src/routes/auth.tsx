@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +20,14 @@ import {
 import { getApiErrorMessage } from "@/lib/axios";
 import { isAdminRole, useAuthStore } from "@/store/authStore";
 
+const authSearchSchema = z.object({
+  // Where to send the user after a successful login/signup — e.g. checkout sends guests here
+  // and wants them back at checkout, not dumped on the home page.
+  redirect: z.string().startsWith("/").optional(),
+});
+
 export const Route = createFileRoute("/auth")({
+  validateSearch: authSearchSchema,
   head: () => ({ meta: [{ title: "Login – SRFOOD" }] }),
   component: AuthPage,
 });
@@ -76,6 +84,7 @@ function AuthPage() {
 
 function LoginForm() {
   const nav = useNavigate();
+  const { redirect } = Route.useSearch();
   const setSession = useAuthStore((s) => s.setSession);
   const {
     register: field,
@@ -88,7 +97,7 @@ function LoginForm() {
       const { tokens, user } = await login(values.mobile, values.password);
       setSession(user, tokens.accessToken, tokens.refreshToken);
       toast.success(`Welcome back, ${user.name}`);
-      nav({ to: isAdminRole(user.role) ? "/admin" : "/" });
+      nav({ to: isAdminRole(user.role) ? "/admin" : (redirect ?? "/") } as never);
     } catch (error) {
       toast.error(getApiErrorMessage(error, "Invalid mobile number or password"));
     }
@@ -115,6 +124,7 @@ function LoginForm() {
 
 function SignupForm() {
   const nav = useNavigate();
+  const { redirect } = Route.useSearch();
   const setSession = useAuthStore((s) => s.setSession);
   const {
     register: field,
@@ -127,7 +137,7 @@ function SignupForm() {
       const { tokens, user } = await registerAccount(values);
       setSession(user, tokens.accessToken, tokens.refreshToken);
       toast.success(`Welcome, ${user.name}`);
-      nav({ to: "/" });
+      nav({ to: redirect ?? "/" } as never);
     } catch (error) {
       toast.error(getApiErrorMessage(error, "Could not create account"));
     }

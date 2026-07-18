@@ -11,10 +11,9 @@ export interface CreateOrderPayload {
     couponCode?: string;
   };
   paymentMethod: "UPI" | "COD";
-  pnr?: string;
+  trainNumber: string;
   coach?: string;
   seat?: string;
-  trainNumber?: string;
   boardingStation?: string;
   deliveryStation: string;
 }
@@ -36,7 +35,7 @@ export interface ApiOrder {
   grandTotal: number;
   createdAt: string;
   items: { menuItemId: string; name: string; price: number; quantity: number }[];
-  pnr?: string;
+  trainNumber?: string;
   coach?: string;
   seat?: string;
   deliveryStation: string;

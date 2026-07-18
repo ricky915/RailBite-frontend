@@ -38,7 +38,8 @@ function TrackPage() {
     <div className="max-w-3xl mx-auto px-4 md:px-6 py-6">
       <h1 className="text-2xl font-bold">Track Order #{latest.orderId}</h1>
       <p className="text-muted-foreground text-sm">
-        PNR {latest.pnr} • Coach {latest.coach} • Seat {latest.seat} • {latest.deliveryStation}
+        Train #{latest.trainNumber} • Coach {latest.coach} • Seat {latest.seat} •{" "}
+        {latest.deliveryStation}
       </p>
 
       {display === "Cancelled" ? (

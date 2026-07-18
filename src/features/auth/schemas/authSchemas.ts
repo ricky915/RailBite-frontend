@@ -7,9 +7,8 @@ const mobileSchema = z
 
 const passwordRulesSchema = z
   .string()
-  .min(8, "At least 8 characters")
-  .regex(/[a-zA-Z]/, "Must contain a letter")
-  .regex(/[0-9]/, "Must contain a number");
+  .min(1, "Password is required")
+  .max(72, "At most 72 characters");
 
 export const loginSchema = z.object({
   mobile: mobileSchema,

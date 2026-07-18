@@ -25,7 +25,10 @@ export const Route = createFileRoute("/contact")({
 
 const schema = z.object({
   name: z.string().trim().min(2).max(80),
-  email: z.string().trim().email().max(200),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number"),
   message: z.string().trim().min(5).max(1000),
 });
 type F = z.infer<typeof schema>;
@@ -55,7 +58,7 @@ function ContactPage() {
     try {
       await createSupportTicket({
         name: d.name,
-        email: d.email,
+        phone: d.phone,
         subject: "Contact form inquiry",
         message: d.message,
       });
@@ -85,9 +88,9 @@ function ContactPage() {
           {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
         </div>
         <div className="space-y-1.5">
-          <Label>Email</Label>
-          <Input type="email" {...register("email")} />
-          {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+          <Label>Mobile Number</Label>
+          <Input inputMode="numeric" maxLength={10} placeholder="9876543210" {...register("phone")} />
+          {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
         </div>
         <div className="space-y-1.5">
           <Label>Message</Label>

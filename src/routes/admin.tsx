@@ -1365,7 +1365,6 @@ function UsersAdmin() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
                 <TableHead>Mobile</TableHead>
                 <TableHead>Joined</TableHead>
                 <TableHead>Status</TableHead>
@@ -1376,7 +1375,6 @@ function UsersAdmin() {
               {users.map((u) => (
                 <TableRow key={u._id}>
                   <TableCell className="font-medium">{u.name}</TableCell>
-                  <TableCell>{u.email}</TableCell>
                   <TableCell>{u.mobile}</TableCell>
                   <TableCell className="text-xs">
                     {new Date(u.createdAt).toLocaleDateString()}
@@ -1455,7 +1453,6 @@ function UserDetailPanel({
           <div className="flex-1 overflow-y-auto p-5 space-y-5">
             <div className="space-y-1">
               <div className="font-bold text-lg">{user.name}</div>
-              <div className="text-sm text-muted-foreground">{user.email}</div>
               <div className="text-sm text-muted-foreground">{user.mobile}</div>
               <div className="flex items-center gap-2 pt-1">
                 <span className="text-xs text-muted-foreground">

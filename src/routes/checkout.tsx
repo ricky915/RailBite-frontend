@@ -45,15 +45,14 @@ export const Route = createFileRoute("/checkout")({
 
 const schema = z.object({
   name: z.string().trim().min(2, "Name required").max(80),
-  email: z.string().trim().email("Valid email required").max(200),
   phone: z
     .string()
     .trim()
     .regex(/^[0-9+\-\s]{7,15}$/, "Valid phone required"),
-  pnr: z
+  trainNumber: z
     .string()
     .trim()
-    .regex(/^[0-9]{10}$/, "10-digit PNR"),
+    .regex(/^[0-9]{4,5}$/, "4-5 digit train number"),
   coach: z.string().trim().min(1).max(6),
   seat: z.string().trim().min(1).max(4),
   station: z.string().trim().min(2).max(60),
@@ -98,8 +97,8 @@ function CheckoutPage() {
     resolver: zodResolver(schema),
     defaultValues: {
       name: currentUser?.name ?? "",
-      email: currentUser?.email ?? "",
       phone: currentUser?.mobile ?? "",
+      trainNumber: deliveryTrainNumber ?? "",
       station: "",
     },
   });
@@ -176,7 +175,9 @@ function CheckoutPage() {
       <div className="max-w-xl mx-auto py-20 text-center px-4">
         <p className="text-muted-foreground">Please log in to complete checkout.</p>
         <Button asChild className="mt-4">
-          <Link to="/auth">Log In / Sign Up</Link>
+          <Link to="/auth" search={{ redirect: "/checkout" }}>
+            Log In / Sign Up
+          </Link>
         </Button>
       </div>
     );
@@ -208,10 +209,9 @@ function CheckoutPage() {
             couponCode: couponCode ?? undefined,
           },
           paymentMethod: payment,
-          pnr: data.pnr,
+          trainNumber: data.trainNumber,
           coach: data.coach,
           seat: data.seat,
-          trainNumber: deliveryTrainNumber ?? undefined,
           deliveryStation: data.station,
         },
         idempotencyKey,
@@ -406,9 +406,6 @@ function CheckoutPage() {
             <Field label="Phone" error={errors.phone?.message}>
               <Input {...register("phone")} />
             </Field>
-            <Field label="Email" error={errors.email?.message} full>
-              <Input type="email" {...register("email")} />
-            </Field>
           </div>
         </section>
 
@@ -432,8 +429,8 @@ function CheckoutPage() {
             </Button>
           </div>
           <div className="grid md:grid-cols-2 gap-3">
-            <Field label="PNR (10 digits)" error={errors.pnr?.message}>
-              <Input maxLength={10} {...register("pnr")} />
+            <Field label="Train Number" error={errors.trainNumber?.message}>
+              <Input maxLength={5} placeholder="e.g. 12345" {...register("trainNumber")} />
             </Field>
             <Field label="Station / Delivery Location" error={errors.station?.message}>
               <Popover open={stationOpen} onOpenChange={setStationOpen}>

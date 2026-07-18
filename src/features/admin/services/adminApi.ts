@@ -24,7 +24,7 @@ export interface AdminOrder {
   utrReference?: string;
   grandTotal: number;
   createdAt: string;
-  pnr?: string;
+  trainNumber?: string;
   items: { name: string; quantity: number }[];
 }
 
@@ -49,7 +49,6 @@ export async function updateOrderStatus(
 export interface AdminUser {
   _id: string;
   name: string;
-  email: string;
   mobile: string;
   createdAt: string;
   isBlocked: boolean;

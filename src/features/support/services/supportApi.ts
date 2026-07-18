@@ -2,8 +2,7 @@ import { api } from "@/lib/axios";
 
 export interface CreateTicketPayload {
   name: string;
-  email: string;
-  phone?: string;
+  phone: string;
   subject: string;
   message: string;
   category?: string;
