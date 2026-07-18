@@ -24,6 +24,7 @@ import { submitPaymentReference, declinePayment } from "@/features/payments/serv
 import type { UpiPaymentInfo } from "@/features/orders/types";
 import { getStations } from "@/features/stations/services/stationsApi";
 import { getApiErrorMessage } from "@/lib/axios";
+import { generateUuid } from "@/lib/uuid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,7 +80,7 @@ function CheckoutPage() {
   const [declining, setDeclining] = useState(false);
   const [locating, setLocating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey] = useState(() => generateUuid());
   const [stationOpen, setStationOpen] = useState(false);
 
   const { data: stations } = useQuery({
